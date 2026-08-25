@@ -39,7 +39,7 @@ func main() {
 		log.Fatalf("[knowtree] init gorm: %v", err)
 	}
 
-	r := api.NewRouter(cfg, gdb)
+	r := api.NewRouter(cfg, gdb, cfg.DataDir)
 	log.Printf("[knowtree] v%s listening on http://%s (data: %s)", cfg.Version, cfg.Addr, cfg.DataDir)
 	if err := r.Run(cfg.Addr); err != nil {
 		log.Fatal(err)

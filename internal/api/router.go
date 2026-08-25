@@ -21,12 +21,13 @@ const fallbackHTML = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF
 </body></html>`
 
 type Server struct {
-	cfg *config.Config
-	db  *gorm.DB
+	cfg     *config.Config
+	db      *gorm.DB
+	dataDir string
 }
 
-func NewRouter(cfg *config.Config, gdb *gorm.DB) *gin.Engine {
-	s := &Server{cfg: cfg, db: gdb}
+func NewRouter(cfg *config.Config, gdb *gorm.DB, dataDir string) *gin.Engine {
+	s := &Server{cfg: cfg, db: gdb, dataDir: dataDir}
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
@@ -72,6 +73,18 @@ func NewRouter(cfg *config.Config, gdb *gorm.DB) *gin.Engine {
 		g.POST("/llm/explain", s.llmExplain)
 		g.POST("/llm/generate-subtree", s.llmGenerateSubtree)
 		g.POST("/llm/generate-exercises", s.llmGenerateExercises)
+
+		// 数据导入导出 / 备份恢复 / 统计（M5）
+		g.GET("/export", s.exportAll)
+		g.POST("/import", s.importAll)
+		g.GET("/backup", s.backupDB)
+		g.POST("/restore", s.restoreDB)
+		g.GET("/stats", s.stats)
+
+		// 版本与自更新（FR-11）
+		g.POST("/update/check", s.updateCheck)
+		g.POST("/update/apply", s.updateApply)
+		g.POST("/update/restart", s.updateRestart)
 
 		// 连线（自由关联，层级不在此表）
 		g.GET("/edges", s.listEdges)
