@@ -2,7 +2,7 @@
 
 | 项 | 内容 |
 | --- | --- |
-| 文档版本 | v1.3 |
+| 文档版本 | v1.4 |
 | 状态 | 关键决策已确认（剩余开放问题见 §8） |
 | 产品名称 | knowtree（知识树） |
 | 更新日期 | 2026-02-05 |
@@ -15,6 +15,7 @@
 | v1.1 | ① 确认连线区分「前置依赖/一般关联」；② 确认一键生成学段-学科骨架；③ 新增练习题生成；④ 前端定为 Vue 3；⑤ 以 Docker 为基准做后端选型对比；⑥ 数据来源新增公网公开资源通道 |
 | v1.2 | ① 树展示废弃 el-tree 缩进列表方案，改为**统一知识画布**（空间卡片 + 连线，交互对齐 `D:\Project\workspace\tree-link.html` 参考实现）；② 后端**确定选用 Go**（接受前后端双语言，否决 Node.js 后端）；③ FR-9 增加 **LLM 批改**能力；④ 新增 FR-10 知识点**批注（学习心得）**功能 |
 | v1.3 | 新增 §3.6 **数据库专项**：回应「SQLite 卡表」疑虑，明确 WAL + 写串行化 + 快照备份等保障方案，数据库定稿 SQLite |
+| v1.4 | 部署形态反转：**单文件二进制升为主形态**（go:embed 内嵌前端，双击即用免安装），Docker 降为可选备选；补充数据目录策略与升级方式 |
 
 ---
 
@@ -30,7 +31,7 @@
 - 一张**空间画布**上同时呈现知识树的层级连线与知识点间的自由关联
 - 学习状态可视化追踪，学习心得随手批注
 - LLM 辅助：讲解、生成子树、生成练习题、批改作业
-- 一条 `docker compose up -d` 即可跑起来
+- **单个可执行文件即可运行**（前端经 go:embed 内嵌，无需安装任何依赖）；Docker 为可选备选
 
 ### 1.3 非目标（本期不做）
 
@@ -226,7 +227,7 @@
 
 - 前端：**Vue 3** 全家桶；树展示采用**统一知识画布**（不用任何现成树列表组件）
 - 后端：**Go**（已确认接受前后端双语言；否决 Node.js 后端方案）
-- 部署：Docker 多阶段构建，单容器单端口；后端 `go:embed` 自托管前端产物，不依赖 nginx
+- 部署：**单文件二进制为主**——`go:embed` 把前端产物打进 Go 二进制，一个文件即完整应用；Docker 为可选备选
 
 ### 3.2 前端选型（Vue 3 技术栈）
 
@@ -284,20 +285,44 @@
 - 配置：环境变量 + settings 表双层（部署配置 vs 用户配置分离）
 - 开发效率缓解措施：API 面小而稳定（§4 草案一次性定型）、DTO 结构集中一个包内维护、用 oapi-codegen 从 OpenAPI 生成服务端桩与 TS 客户端类型（P1，先手写跑通）
 
-### 3.5 部署形态
+### 3.5 部署形态（v1.4 定稿：单文件二进制为主）
+
+Go 的 `go:embed` 让前后端真正合体：Vue 构建产物在**编译期**打入二进制，最终 **一个文件 = 完整应用**（API 服务 + 全部前端页面 + SQLite 引擎，纯 Go 编译无任何外部依赖）。
+
+**构建流水线**
 
 ```
-docker-compose.yml
-├─ build: 多阶段
-│   ① node:20 → pnpm build（Vue 产物 dist/）
-│   ② golang:1.23 → go build（dist/ 经 go:embed 打入二进制）
-│   ③ 运行层 alpine（caonly tzdata）：拷入单一二进制
-└─ volumes: ./data → /app/data（SQLite + 上传文件）
-ports: "3000:3000"
+pnpm build（Vue → dist/）
+        ↓
+//go:embed all:dist  →  go build（CGO_ENABLED=0）
+        ↓
+knowtree.exe / knowtree-linux / knowtree-macos   （约 20-30MB）
 ```
 
-- 单容器、单端口、单文件二进制；**全程不依赖 nginx**
-- 附赠：Go 交叉编译天然产出 Windows/Linux/macOS 单文件可执行程序（无需 Docker 的场景），属顺手能力而非设计目标
+- modernc.org/sqlite 纯 Go 无 CGO → `CGO_ENABLED=0` 一条命令交叉编译 Windows/Linux/macOS，无任何 C 依赖拖累
+- 版本号经 `-ldflags "-X main.version=vx.y.z"` 注入，设置面板可见
+
+**运行形态**
+
+```
+knowtree（双击或命令行）
+    ├─ 默认监听 127.0.0.1:3000（-addr 参数或环境变量可改）
+    ├─ 数据目录默认 ./data（exe 同级；-data 或 KNOWTREE_DATA_DIR 可指定）
+    │     └─ knowtree.db（SQLite, WAL）+ 上传文件
+    └─ 升级 = 替换 exe 文件，数据目录原样保留，启动时 goose 自动迁移
+```
+
+- 双击即用：**不需要 Docker、不需要 nginx、不需要装任何运行时**
+- 首次启动自动建库建表并引导初始化，浏览器打开 `http://127.0.0.1:3000` 即进入
+
+**可选备选：Docker**
+
+保留一份多阶段构建的 `Dockerfile` + `docker-compose.yml`（数据目录挂载为 `/app/data` 卷），供 NAS / 常开服务器等偏好容器化管理的场景。与二进制是同一套代码的两条产物路径，功能完全一致。
+
+| 形态 | 使用方式 | 适用场景 |
+| --- | --- | --- |
+| **单二进制（主形态）** | 双击 exe / 运行一条命令 | 本机日常使用 |
+| Docker（可选） | `docker compose up -d` | NAS、挂机的服务器 |
 
 ### 3.6 数据库专项：SQLite 撑得住吗（v1.3 定稿）
 
@@ -365,7 +390,7 @@ ports: "3000:3000"
 
 - **单进程、单端口**：后端既提供 API 也托管前端静态文件
 - LLM 调用由后端代理（API Key 不下发浏览器），讲解走 SSE 流式；出题/批改为同步 JSON 接口
-- 数据目录 `/app/data`（volume 挂载；本地直跑用 `KNOWTREE_DATA_DIR` 覆盖），内含 `knowtree.db`
+- 数据目录默认 `./data`（exe 同级；`-data` 参数或 `KNOWTREE_DATA_DIR` 可指定；Docker 形态挂载为 `/app/data`），内含 `knowtree.db`
 
 ### API 草案（REST，前缀 `/api`）
 
@@ -480,12 +505,12 @@ CREATE TABLE settings ( key TEXT PRIMARY KEY, value_json TEXT NOT NULL );
 | 类别 | 要求 |
 | --- | --- |
 | 性能 | ≥ 5000 节点时画布交互流畅（聚焦分支渲染 + 折叠聚合；搜索跳转定位）；常规 API < 50ms |
-| 部署 | `docker compose up -d` 一条命令；单端口（默认 `3000`，可配）；数据落挂载卷；镜像 ≤ 30MB |
+| 部署 | 主形态：单个可执行文件直接运行（≤ 30MB）；可选 Docker（镜像 ≤ 30MB）；单端口（默认 `3000`，可配）；数据落本地 data 目录或挂载卷 |
 | 前端托管 | 后端 `go:embed` 自托管，**不依赖 nginx 等任何第三方 Web 服务器** |
 | 监听地址 | 默认 `127.0.0.1`；允许配置为 `0.0.0.0` 局域网访问，此时应启用可选访问口令（§7-S9） |
 | 数据安全 | SQLite（WAL 模式）；一键备份用 `VACUUM INTO` 一致性快照；goose 迁移向前兼容，升级不改坏旧库 |
 | 浏览器兼容 | 最新版 Chrome/Edge/Firefox；不考虑 IE |
-| 平台 | Docker 镜像 linux/amd64 + arm64；Go 交叉编译附带产出三大平台单文件程序 |
+| 平台 | Windows / Linux / macOS 三平台单文件程序（CGO_ENABLED=0 交叉编译）；Docker 镜像 linux/amd64 + arm64 |
 
 ---
 
@@ -523,6 +548,7 @@ CREATE TABLE settings ( key TEXT PRIMARY KEY, value_json TEXT NOT NULL );
 | D7 | 新增**知识点批注**功能，多条/时间序/画布角标/LLM 讲解引用（v1.2）✅ |
 | D8 | 数据来源增加公网公开资源调研通道 ✅ |
 | D9 | 数据库定稿 **SQLite**：WAL 模式 + 写串行化 + `VACUUM INTO` 快照备份，专项分析见 §3.6（v1.3）✅ |
+| D10 | 部署定稿：**单文件二进制为主形态**（go:embed 内嵌前端，三平台免安装直跑），Docker 为可选备选（v1.4）✅ |
 
 ### 8.2 仍开放（不阻塞开工）
 
@@ -543,7 +569,7 @@ CREATE TABLE settings ( key TEXT PRIMARY KEY, value_json TEXT NOT NULL );
 | M2 知识画布 | 画布核心（参考实现全部交互）：卡片拖拽、三种线型连线、锚点拉线、点选成线、缩放平移、自动排布、坐标持久化 | 对照 tree-link.html 逐项验收 |
 | M3 详情与批注 | 详情面板、Markdown+KaTeX、资源链接、状态切换筛选、**批注 CRUD + 角标** | 节点内容与心得完整可用 |
 | M4 LLM | 设置面板、流式讲解、生成子树预览入库、**出题 + 批改闭环** | 讲解/子树/出题/批改四大能力跑通 |
-| M5 收尾 | 导入导出、备份恢复、统计页、撤销重做、公开数据源调研报告 + 首个转换脚本、镜像发布 | compose 一条命令部署成功，镜像 ≤ 30MB |
+| M5 收尾 | 导入导出、备份恢复、统计页、撤销重做、公开数据源调研报告 + 首个转换脚本、三平台二进制发布 + 可选 Docker 镜像 | 双击 exe 即用；compose 备选路径可用，产物 ≤ 30MB |
 
 ---
 
