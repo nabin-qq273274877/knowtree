@@ -21,12 +21,12 @@ import '@vue-flow/core/dist/theme-default.css'
 import '@vue-flow/controls/dist/style.css'
 import '@vue-flow/minimap/dist/style.css'
 
-import { useTreeStore } from '@/stores/tree'
+import { useTreeStore, pushUndo } from '@/stores/tree'
 import KnowledgeNode from '@/components/canvas/KnowledgeNode.vue'
 import DetailDrawer from '@/components/canvas/DetailDrawer.vue'
 import { LINE_STYLE, RELATION_LABEL, STATUS_META } from '@/utils/meta'
 import { api } from '@/api/client'
-import type { EdgeRelation, KNode, NodeStatus } from '@/types'
+import type { KEdge, KNode, EdgeRelation, NodeStatus } from '@/types'
 
 const store = useTreeStore()
 const { fitView, addNodes } = useVueFlow()
@@ -114,7 +114,16 @@ const connectMode = ref(false)
 
 async function createEdgeBetween(sourceId: string, targetId: string) {
   try {
-    await store.createEdge(sourceId, targetId, relationType.value)
+    const e = await store.createEdge(sourceId, targetId, relationType.value)
+    pushUndo({
+      label: '连线',
+      undo: async () => {
+        await store.deleteEdgeRaw(e.id)
+      },
+      redo: async () => {
+        await store.createEdgeRaw({ id: e.id, source_id: e.source_id, target_id: e.target_id, relation: e.relation })
+      },
+    })
     ElMessage.success(`已连接（${RELATION_LABEL[relationType.value]}）`)
   } catch (e) {
     ElMessage.warning(e instanceof Error ? e.message : String(e))
@@ -166,14 +175,33 @@ function clearPending() {
   pendingSourceId.value = null
 }
 
-// ---------- 拖拽落点持久化 ----------
+// ---------- 拖拽落点持久化（含位置撤销）----------
+const dragStartPos = ref<Map<string, { x: number; y: number }>>(new Map())
+
+function onDragStart(e: { node: GraphNode }) {
+  dragStartPos.value.set(e.node.id, { x: e.node.position.x, y: e.node.position.y })
+}
+
 function onDragStop(e: { node: GraphNode }) {
   const n = store.byId.get(e.node.id)
   if (!n) return
   const x = Math.round(e.node.position.x)
   const y = Math.round(e.node.position.y)
   if (n.pos_x !== x || n.pos_y !== y) {
+    const old = dragStartPos.value.get(e.node.id)
+    const id = n.id
     void store.savePosition(n.id, x, y)
+    if (old) {
+      pushUndo({
+        label: '移动节点',
+        undo: async () => {
+          await store.savePosition(id, Math.round(old.x), Math.round(old.y))
+        },
+        redo: async () => {
+          await store.savePosition(id, x, y)
+        },
+      })
+    }
   }
 }
 
@@ -221,8 +249,20 @@ const layouting = ref(false)
 async function autoLayout(silent = false) {
   layouting.value = true
   try {
+    // 记录旧坐标用于撤销
+    const oldPositions = new Map(store.nodes.map((n) => [n.id, { x: n.pos_x ?? 0, y: n.pos_y ?? 0 }]))
     const pos = computeLayout()
-    await store.setPositions([...pos.entries()].map(([id, p]) => ({ id, pos_x: p.x, pos_y: p.y })))
+    const newItems = [...pos.entries()].map(([id, p]) => ({ id, pos_x: p.x, pos_y: p.y }))
+    await store.setPositions(newItems)
+    pushUndo({
+      label: '自动排布',
+      undo: async () => {
+        await store.setPositions([...oldPositions.entries()].map(([id, p]) => ({ id, pos_x: p.x, pos_y: p.y })))
+      },
+      redo: async () => {
+        await store.setPositions(newItems)
+      },
+    })
     if (!silent) ElMessage.success('已自动排布')
     await nextTick(() => fitView({ padding: 0.12, duration: 250 }))
   } catch (e) {
@@ -241,6 +281,16 @@ function onKeydown(ev: KeyboardEvent) {
     selectedNodeId.value = null
     selectedEdgeId.value = null
     drawerOpen.value = false
+  } else if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'z' && !ev.shiftKey) {
+    if (store.canUndo()) {
+      void store.undo()
+      ElMessage.info('已撤销')
+    }
+  } else if ((ev.ctrlKey || ev.metaKey) && (ev.key.toLowerCase() === 'y' || (ev.shiftKey && ev.key.toLowerCase() === 'z'))) {
+    if (store.canRedo()) {
+      void store.redo()
+      ElMessage.info('已重做')
+    }
   } else if (ev.key === 'Delete' || ev.key === 'Backspace') {
     if (selectedEdgeId.value) {
       void removeEdge(selectedEdgeId.value)
@@ -253,12 +303,24 @@ window.addEventListener('keydown', onKeydown)
 onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 async function removeEdge(id: string) {
+  const e = store.edges.find((x) => x.id === id)
   try {
-    await store.deleteEdge(id)
+    await store.deleteEdgeRaw(id)
     selectedEdgeId.value = null
-    ElMessage.success('已删除连线')
-  } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : String(e))
+    if (e) {
+      pushUndo({
+        label: '删除连线',
+        undo: async () => {
+          await store.createEdgeRaw({ id: e.id, source_id: e.source_id, target_id: e.target_id, relation: e.relation })
+        },
+        redo: async () => {
+          await store.deleteEdgeRaw(e.id)
+        },
+      })
+    }
+    ElMessage.success('已删除连线（Ctrl+Z 可撤销）')
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : String(err))
   }
 }
 
@@ -447,9 +509,47 @@ async function removeNode(id: string) {
   } catch {
     return
   }
-  const deleted = await store.deleteNode(id)
+
+  // 快照子树节点 + 相关联线，供撤销重建（批注/资源不随撤销恢复）
+  const doomed = new Set<string>([id])
+  const collectIds = (pid: string) => {
+    for (const x of store.nodes.filter((k) => k.parent_id === pid)) {
+      doomed.add(x.id)
+      collectIds(x.id)
+    }
+  }
+  collectIds(id)
+  const snapNodes = store.nodes.filter((x) => doomed.has(x.id))
+  const snapEdges = store.edges.filter((e) => doomed.has(e.source_id) || doomed.has(e.target_id))
+
+  const deleted = await store.deleteNodeCascadeRaw(id)
   selectedNodeId.value = null
-  ElMessage.success(`已删除 ${deleted} 个节点`)
+  pushUndo({
+    label: '删除节点',
+    undo: async () => {
+      for (const sn of snapNodes) {
+        await store.createNodeRaw({
+          id: sn.id, title: sn.title, parent_id: sn.parent_id, stage: sn.stage,
+          status: sn.status, content_md: sn.content_md,
+        })
+        if (sn.pos_x != null && sn.pos_y != null) {
+          await store.savePosition(sn.id, Math.round(sn.pos_x), Math.round(sn.pos_y))
+        }
+        if (!store.nodes.some((k) => k.id === sn.id)) store.nodes.push(sn)
+      }
+      for (const se of snapEdges) {
+        try {
+          await store.createEdgeRaw(se)
+        } catch {
+          /* 已存在则跳过 */
+        }
+      }
+    },
+    redo: async () => {
+      await store.deleteNodeCascadeRaw(id)
+    },
+  })
+  ElMessage.success(`已删除 ${deleted} 个节点（Ctrl+Z 可撤销）`)
 }
 
 async function setStatus(status: NodeStatus) {
@@ -501,6 +601,7 @@ async function setStatus(status: NodeStatus) {
         @edge-click="onEdgeClick"
         @pane-click="onPaneClick"
         @connect="onConnect"
+        @node-drag-start="onDragStart"
         @node-drag-stop="onDragStop"
       >
         <template #node-kt="ktProps">

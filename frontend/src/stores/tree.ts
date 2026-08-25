@@ -2,6 +2,24 @@ import { defineStore } from 'pinia'
 import { api } from '@/api/client'
 import type { KNode, NodeStatus, EdgeRelation, KEdge } from '@/types'
 
+// ---------- 撤销/重做（S3，仅画布结构操作）----------
+
+export interface UndoCommand {
+  label: string
+  undo: () => Promise<void>
+  redo: () => Promise<void>
+}
+
+const undoStack: UndoCommand[] = []
+const redoStack: UndoCommand[] = []
+const MAX_HISTORY = 50
+
+export function pushUndo(cmd: UndoCommand) {
+  undoStack.push(cmd)
+  if (undoStack.length > MAX_HISTORY) undoStack.shift()
+  redoStack.length = 0
+}
+
 interface NodesState {
   nodes: KNode[]
   edges: KEdge[]
@@ -128,6 +146,58 @@ export const useTreeStore = defineStore('tree', {
 
     setStatus(id: string, status: NodeStatus) {
       return this.updateNode(id, { status })
+    },
+
+    // ---------- 撤销/重做底层原语（不记录命令）----------
+
+    async createNodeRaw(payload: {
+      id?: string
+      title: string
+      parent_id?: string | null
+      stage?: string | null
+      status?: NodeStatus
+      content_md?: string
+    }) {
+      return api.post<KNode>('/api/nodes', payload)
+    },
+
+    async deleteNodeCascadeRaw(id: string): Promise<number> {
+      const r = await api.delete<{ deleted: number }>(`/api/nodes/${id}`)
+      this.nodes = this.nodes.filter((n) => n.id !== id)
+      await this.loadAll()
+      return r.deleted
+    },
+
+    async createEdgeRaw(e: { id: string; source_id: string; target_id: string; relation: EdgeRelation; label?: string | null }) {
+      const created = await api.post<KEdge>('/api/edges', e)
+      this.edges.push(created)
+      return created
+    },
+
+    async deleteEdgeRaw(id: string) {
+      await api.delete(`/api/edges/${id}`)
+      this.edges = this.edges.filter((e) => e.id !== id)
+    },
+
+    // ---------- 命令栈操作 ----------
+
+    canUndo(): boolean {
+      return undoStack.length > 0
+    },
+    canRedo(): boolean {
+      return redoStack.length > 0
+    },
+    async undo() {
+      const cmd = undoStack.pop()
+      if (!cmd) return
+      await cmd.undo()
+      redoStack.push(cmd)
+    },
+    async redo() {
+      const cmd = redoStack.pop()
+      if (!cmd) return
+      await cmd.redo()
+      undoStack.push(cmd)
     },
   },
 })

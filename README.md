@@ -66,11 +66,19 @@ cd frontend && pnpm install && pnpm dev   # http://localhost:5173
 ## 计划（里程碑）
 
 - [x] 需求文档 v1.6
-- [x] M1 骨架：monorepo、SQLite 迁移、节点 CRUD API、临时管理页、compose 跑通 ✅
-- [ ] M2 知识画布：卡片拖拽 / 层级+关联连线 / 锚点拉线 / 缩放平移 / 自动排布（对齐 tree-link.html）
-- [ ] M3 详情面板：Markdown+KaTeX 正文、教学资源、学习状态、批注
-- [ ] M4 LLM：设置面板、流式讲解、生成子树、出题与批改
-- [ ] M5 收尾与发布：导入导出、备份恢复、统计、撤销重做、CI 发布流水线与应用内自更新
+- [x] M1 骨架：monorepo、SQLite 迁移、节点 CRUD API、compose 跑通 ✅
+- [x] M2 知识画布：卡片拖拽 / 层级+关联连线 / 锚点拉线 / 点选成线 / 缩放平移 / 自动排布 ✅
+- [x] M3 详情面板：Markdown+KaTeX 正文、教学资源、学习状态、批注（画布角标）✅
+- [x] M4 LLM：设置面板+测试连接、SSE 流式讲解、生成子树预览入库、出题与批改闭环 ✅
+- [ ] M5 收尾与发布（进行中）：导入导出 ✅ 备份恢复 ✅ 统计页 ✅ 撤销重做 ✅ 自更新端点 ✅ → 前端联调 + CI 发布流水线
+
+## 发布
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+# GitHub Actions 自动构建五平台二进制 + checksums.txt 并发布 Release
+# 应用内「设置 → 版本与更新」即可检测并一键自更新
+```
 
 ## Git 提交约定
 

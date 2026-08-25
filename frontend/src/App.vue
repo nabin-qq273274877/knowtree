@@ -24,6 +24,9 @@ const active = computed(() => route.name as string)
         <el-menu-item index="canvas">
           <span>🗺️ 知识画布</span>
         </el-menu-item>
+        <el-menu-item index="stats">
+          <span>📊 学习统计</span>
+        </el-menu-item>
         <el-menu-item index="settings">
           <span>⚙️ 设置</span>
         </el-menu-item>
