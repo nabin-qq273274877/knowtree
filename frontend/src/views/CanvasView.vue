@@ -25,6 +25,7 @@ import { useTreeStore } from '@/stores/tree'
 import KnowledgeNode from '@/components/canvas/KnowledgeNode.vue'
 import DetailDrawer from '@/components/canvas/DetailDrawer.vue'
 import { LINE_STYLE, RELATION_LABEL, STATUS_META } from '@/utils/meta'
+import { api } from '@/api/client'
 import type { EdgeRelation, KNode, NodeStatus } from '@/types'
 
 const store = useTreeStore()
@@ -280,6 +281,97 @@ function onDrawerClosed() {
   drawerRef.value?.flushSave()
 }
 
+// ---------- AI 生成子树 ----------
+interface DraftTreeNode {
+  title: string
+  summary?: string
+  children?: DraftTreeNode[]
+}
+const subOpen = ref(false)
+const subTopic = ref('')
+const subParent = ref<string | null>(null)
+const subCount = ref(8)
+const subGenerating = ref(false)
+const subTree = ref<DraftTreeNode[]>([])
+const inserting = ref(false)
+
+function openSubDialog() {
+  subTopic.value = ''
+  subTree.value = []
+  subParent.value = selectedNodeId.value
+  subOpen.value = true
+}
+
+async function generateSubtree() {
+  if (!subTopic.value.trim()) return
+  subGenerating.value = true
+  subTree.value = []
+  try {
+    const r = await api.post<{ tree: DraftTreeNode[] }>('/api/llm/generate-subtree', {
+      parent_id: subParent.value,
+      topic: subTopic.value.trim(),
+      count: subCount.value,
+    })
+    subTree.value = r.tree ?? []
+    if (!subTree.value.length) ElMessage.warning('模型没有生成内容，请重试')
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : String(e))
+  } finally {
+    subGenerating.value = false
+  }
+}
+
+function countDraft(list: DraftTreeNode[]): number {
+  return list.reduce((s, d) => s + 1 + countDraft(d.children ?? []), 0)
+}
+
+async function insertDraftTree(list: DraftTreeNode[], parentId: string | null): Promise<number> {
+  let count = 0
+  for (const d of list) {
+    const n = await store.createNode(d.title, parentId)
+    count++
+    if (d.children?.length) count += await insertDraftTree(d.children, n.id)
+  }
+  return count
+}
+
+async function confirmInsertSubtree() {
+  inserting.value = true
+  try {
+    const total = await insertDraftTree(subTree.value, subParent.value)
+    subOpen.value = false
+    await autoLayout(true)
+    ElMessage.success(`已插入 ${total} 个知识点`)
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : String(e))
+  } finally {
+    inserting.value = false
+  }
+}
+
+const subTreeOptions = computed(() => toElTree(subTree.value))
+
+// 挂载点选择树
+interface TreeNode {
+  node: KNode
+  children: TreeNode[]
+}
+const parentOptions = computed(() => toOptions(store.tree))
+function toOptions(list: TreeNode[]): { value: string; label: string; children: unknown[] }[] {
+  return list.map((t) => ({
+    value: t.node.id,
+    label: t.node.title,
+    children: toOptions(t.children),
+  }))
+}
+
+function toElTree(list: DraftTreeNode[]): { label: string; children: unknown[] }[] {
+  return list.map((d) => ({
+    label: d.summary ? `${d.title}（${d.summary}）` : d.title,
+    children: toElTree(d.children ?? []),
+  }))
+}
+
 // 当前选中节点（操作函数共用）
 const selectedNode = computed<KNode | undefined>(() =>
   selectedNodeId.value ? store.byId.get(selectedNodeId.value) : undefined,
@@ -378,6 +470,7 @@ async function setStatus(status: NodeStatus) {
       <el-button :icon="MagicStick" size="small" :loading="layouting" @click="autoLayout()">
         自动排布
       </el-button>
+      <el-button size="small" @click="openSubDialog">🤖 生成子树</el-button>
       <el-button :icon="FullScreen" size="small" @click="fitView({ padding: 0.12, duration: 250 })">
         适应屏幕
       </el-button>
@@ -440,6 +533,52 @@ async function setStatus(status: NodeStatus) {
           @jump="jumpTo"
         />
       </el-drawer>
+
+      <!-- AI 生成子树对话框 -->
+      <el-dialog v-model="subOpen" title="🤖 AI 生成知识点子树" width="560px">
+        <div v-if="!subTree.length" style="display: flex; flex-direction: column; gap: 12px">
+          <el-input
+            v-model="subTopic"
+            placeholder="主题，如：人教版八年级物理·浮力"
+            @keyup.enter="generateSubtree"
+          />
+          <el-tree-select
+            v-model="subParent"
+            :data="parentOptions"
+            :props="{ label: 'label', value: 'value' }"
+            check-strictly
+            clearable
+            filterable
+            placeholder="挂载到（留空=根）"
+          />
+          <div style="display: flex; align-items: center; gap: 10px">
+            <span class="dim">节点数</span>
+            <el-input-number v-model="subCount" :min="3" :max="30" />
+            <el-button type="primary" :loading="subGenerating" @click="generateSubtree">生成预览</el-button>
+          </div>
+        </div>
+        <div v-else>
+          <el-alert type="info" :closable="false" style="margin-bottom: 12px"
+            :title="`共 ${countDraft(subTree)} 个节点，确认后入库并自动排布`" />
+          <el-tree :data="subTreeOptions" default-expand-all :props="{ label: 'label', children: 'children' }" style="max-height: 46vh; overflow: auto" />
+        </div>
+        <template #footer>
+          <span style="display: flex; justify-content: space-between; width: 100%">
+            <span>
+              <el-button v-if="subTree.length" @click="subTree = []">重新生成</el-button>
+            </span>
+            <span>
+              <el-button @click="subOpen = false">取消</el-button>
+              <el-button
+                v-if="subTree.length"
+                type="primary"
+                :loading="inserting"
+                @click="confirmInsertSubtree"
+              >入库</el-button>
+            </span>
+          </span>
+        </template>
+      </el-dialog>
     </div>
   </div>
 </template>
