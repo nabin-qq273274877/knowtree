@@ -1,0 +1,13 @@
+services:
+  knowtree:
+    build:
+      context: .
+      args:
+        VERSION: dev
+    image: nabin-qq273274877/knowtree:latest
+    container_name: knowtree
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

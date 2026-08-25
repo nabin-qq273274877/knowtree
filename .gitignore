@@ -4,8 +4,15 @@ node_modules/
 
 # build output
 lib/
-dist/
+/frontend/dist/
 *.tsbuildinfo
+bin/
+
+# go
+*.exe
+
+# runtime data（SQLite + 上传文件，绝不入库）
+data/
 
 # dsh runtime artifacts
 .dsh-*/
