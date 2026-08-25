@@ -60,6 +60,19 @@ func NewRouter(cfg *config.Config, gdb *gorm.DB) *gin.Engine {
 		g.PATCH("/annotations/:id", s.updateAnnotation)
 		g.DELETE("/annotations/:id", s.deleteAnnotation)
 
+		// 练习题（FR-9）
+		g.GET("/nodes/:id/exercises", s.listExercises)
+		g.POST("/nodes/:id/exercises", s.createExercises)
+		g.PATCH("/exercises/:id", s.updateExercise)
+		g.DELETE("/exercises/:id", s.deleteExercise)
+		g.POST("/exercises/:id/submit", s.submitExercise)
+
+		// LLM（FR-6）
+		g.POST("/llm/test", s.llmTest)
+		g.POST("/llm/explain", s.llmExplain)
+		g.POST("/llm/generate-subtree", s.llmGenerateSubtree)
+		g.POST("/llm/generate-exercises", s.llmGenerateExercises)
+
 		// 连线（自由关联，层级不在此表）
 		g.GET("/edges", s.listEdges)
 		g.POST("/edges", s.createEdge)

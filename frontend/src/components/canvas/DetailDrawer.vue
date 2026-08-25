@@ -10,12 +10,17 @@ import { useTreeStore } from '@/stores/tree'
 import { RELATION_LABEL, STATUS_META } from '@/utils/meta'
 import { dayjs } from '@/utils/day'
 import type { KAnnotation, KNode, KResource, NodeStatus } from '@/types'
+import ExplainPane from './ExplainPane.vue'
+import ExercisePanel from './ExercisePanel.vue'
 
 const props = defineProps<{ nodeId: string | null }>()
 const emit = defineEmits<{ (e: 'close'): void; (e: 'jump', id: string): void }>()
 
 const store = useTreeStore()
 const node = computed<KNode | undefined>(() => (props.nodeId ? store.byId.get(props.nodeId) : undefined))
+
+// Tabs
+const activeTab = ref('content')
 
 // ---------- 面包屑 ----------
 const breadcrumb = computed(() => {
@@ -265,105 +270,112 @@ defineExpose({ flushSave })
       </el-select>
     </div>
 
-    <!-- 正文 -->
-    <section class="sec">
-      <div class="sec__head">
-        <span class="sec__title">正文</span>
-        <span class="save-state">
-          {{ dirty ? '未保存…' : savedAt ? `已保存 ${savedAt}` : '' }}
-        </span>
-        <el-button size="small" @click="toggleEdit">{{ editing ? '完成' : '编辑' }}</el-button>
-      </div>
-      <MdEditor
-        v-if="editing"
-        v-model="content"
-        :toolbars="toolbars"
-        :style="{ height: '380px' }"
-        language="zh-CN"
-        placeholder="用 Markdown 记录知识点，支持 LaTeX 公式：$x^2$ 或 $$\\int_a^b f(x)dx$$"
-        @on-change="onContentChange"
-      />
-      <div v-else class="preview-box">
-        <MdPreview v-if="content" :model-value="content" theme="light" preview-theme="github" />
-        <el-empty v-else description="暂无正文，点击「编辑」开始记录" :image-size="72" />
-      </div>
-    </section>
-
-    <!-- 教学资源 -->
-    <section class="sec">
-      <div class="sec__head"><span class="sec__title">教学资源</span></div>
-      <ul v-loading="resLoading" class="res-list">
-        <li v-for="r in resources" :key="r.id" class="res-item">
-          <span class="res-icon">{{ KIND_ICON[r.kind] ?? '🔗' }}</span>
-          <a :href="r.url ?? '#'" target="_blank" rel="noopener" class="res-title">{{ r.title }}</a>
-          <span v-if="r.note" class="res-note">{{ r.note }}</span>
-          <el-button link type="danger" size="small" @click="removeResource(r.id)">删除</el-button>
-        </li>
-        <li v-if="!resources.length && !resLoading" class="empty">还没有资源</li>
-      </ul>
-      <div class="res-form">
-        <el-input v-model="resForm.title" placeholder="标题，如：B站·分数入门课" size="small" style="width: 180px" />
-        <el-select v-model="resForm.kind" size="small" style="width: 90px">
-          <el-option value="link" label="链接" />
-          <el-option value="file" label="文件(P1)" disabled />
-        </el-select>
-        <el-input v-model="resForm.url" placeholder="https://..." size="small" style="width: 200px" />
-        <el-button type="primary" size="small" :loading="addingRes" @click="addResource">添加</el-button>
-      </div>
-    </section>
-
-    <!-- 批注 -->
-    <section class="sec">
-      <div class="sec__head"><span class="sec__title">批注 · 学习心得</span><span class="count">{{ annotations.length }}</span></div>
-      <div class="ann-input">
-        <el-input
-          v-model="annDraft"
-          type="textarea"
-          :rows="2"
-          placeholder="随手记下你的理解、疑问或联想（支持 Markdown），Ctrl+Enter 发表"
-          @keydown.ctrl.enter.prevent="postAnnotation"
+    <!-- Tabs：正文 / AI讲解 / 资源 / 批注 / 练习 / 关联 -->
+    <el-tabs v-model="activeTab">
+      <!-- 正文 -->
+      <el-tab-pane label="正文" name="content">
+        <div class="sec__head" style="margin-bottom: 8px">
+          <span class="save-state">{{ dirty ? '未保存…' : savedAt ? `已保存 ${savedAt}` : '' }}</span>
+          <el-button size="small" @click="toggleEdit">{{ editing ? '完成' : '编辑' }}</el-button>
+        </div>
+        <MdEditor
+          v-if="editing"
+          v-model="content"
+          :toolbars="toolbars"
+          :style="{ height: '420px' }"
+          language="zh-CN"
+          placeholder="用 Markdown 记录知识点，支持 LaTeX 公式：$x^2$ 或 $$\\int_a^b f(x)dx$$"
+          @on-change="onContentChange"
         />
-        <el-button type="primary" size="small" :loading="postingAnn" :disabled="!annDraft.trim()" @click="postAnnotation">
-          发表
-        </el-button>
-      </div>
-      <ul v-loading="annLoading" class="ann-list">
-        <li v-for="a in annotations" :key="a.id" class="ann-item">
-          <template v-if="editingAnnId === a.id">
-            <el-input v-model="editingAnnText" type="textarea" :rows="3" />
-            <div class="ann-actions">
-              <el-button size="small" type="primary" @click="saveEditAnn(a)">保存</el-button>
-              <el-button size="small" @click="editingAnnId = null">取消</el-button>
-            </div>
-          </template>
-          <template v-else>
-            <MdPreview :model-value="a.content_md" theme="light" preview-theme="github" />
-            <div class="ann-foot">
-              <span>{{ dayjs.format(a.updated_at) }}{{ a.updated_at !== a.created_at ? '（已编辑）' : '' }}</span>
-              <span class="ann-actions-inline">
-                <el-button link size="small" @click="startEditAnn(a)">编辑</el-button>
-                <el-button link size="small" type="danger" @click="removeAnn(a)">删除</el-button>
-              </span>
-            </div>
-          </template>
-        </li>
-        <li v-if="!annotations.length && !annLoading" class="empty">学过之后有心得？写在这里</li>
-      </ul>
-    </section>
+        <div v-else class="preview-box">
+          <MdPreview v-if="content" :model-value="content" theme="light" preview-theme="github" />
+          <el-empty v-else description="暂无正文，点击「编辑」开始记录" :image-size="72" />
+        </div>
+      </el-tab-pane>
 
-    <!-- 关联知识点 -->
-    <section class="sec">
-      <div class="sec__head"><span class="sec__title">关联知识点</span></div>
-      <ul class="rel-list">
-        <li v-for="r in relatedList" :key="r.edgeId">
-          <el-tag :type="r.relation === 'prerequisite' ? 'warning' : 'primary'" size="small">
-            {{ RELATION_LABEL[r.relation as keyof typeof RELATION_LABEL] }}
-          </el-tag>
-          <a class="rel-link" @click.prevent="emit('jump', r.other!.id)">{{ r.other?.title ?? '(未知)' }}</a>
-        </li>
-        <li v-if="!relatedList.length" class="empty">在画布上连线即可建立关联</li>
-      </ul>
-    </section>
+      <!-- AI 讲解 -->
+      <el-tab-pane label="🤖 AI讲解" name="explain" lazy>
+        <ExplainPane :node-id="node.id" />
+      </el-tab-pane>
+
+      <!-- 教学资源 -->
+      <el-tab-pane :label="`资源 ${resources.length ? '(' + resources.length + ')' : ''}`" name="resources" lazy>
+        <ul v-loading="resLoading" class="res-list">
+          <li v-for="r in resources" :key="r.id" class="res-item">
+            <span class="res-icon">{{ KIND_ICON[r.kind] ?? '🔗' }}</span>
+            <a :href="r.url ?? '#'" target="_blank" rel="noopener" class="res-title">{{ r.title }}</a>
+            <span v-if="r.note" class="res-note">{{ r.note }}</span>
+            <el-button link type="danger" size="small" @click="removeResource(r.id)">删除</el-button>
+          </li>
+          <li v-if="!resources.length && !resLoading" class="empty">还没有资源</li>
+        </ul>
+        <div class="res-form">
+          <el-input v-model="resForm.title" placeholder="标题，如：B站·分数入门课" size="small" style="width: 170px" />
+          <el-select v-model="resForm.kind" size="small" style="width: 90px">
+            <el-option value="link" label="链接" />
+            <el-option value="file" label="文件(P1)" disabled />
+          </el-select>
+          <el-input v-model="resForm.url" placeholder="https://..." size="small" style="width: 190px" />
+          <el-button type="primary" size="small" :loading="addingRes" @click="addResource">添加</el-button>
+        </div>
+      </el-tab-pane>
+
+      <!-- 批注 -->
+      <el-tab-pane :label="`批注 ${annotations.length ? '(' + annotations.length + ')' : ''}`" name="annotations" lazy>
+        <div class="ann-input">
+          <el-input
+            v-model="annDraft"
+            type="textarea"
+            :rows="2"
+            placeholder="随手记下你的理解、疑问或联想（支持 Markdown），Ctrl+Enter 发表"
+            @keydown.ctrl.enter.prevent="postAnnotation"
+          />
+          <el-button type="primary" size="small" :loading="postingAnn" :disabled="!annDraft.trim()" @click="postAnnotation">
+            发表
+          </el-button>
+        </div>
+        <ul v-loading="annLoading" class="ann-list">
+          <li v-for="a in annotations" :key="a.id" class="ann-item">
+            <template v-if="editingAnnId === a.id">
+              <el-input v-model="editingAnnText" type="textarea" :rows="3" />
+              <div class="ann-actions">
+                <el-button size="small" type="primary" @click="saveEditAnn(a)">保存</el-button>
+                <el-button size="small" @click="editingAnnId = null">取消</el-button>
+              </div>
+            </template>
+            <template v-else>
+              <MdPreview :model-value="a.content_md" theme="light" preview-theme="github" />
+              <div class="ann-foot">
+                <span>{{ dayjs.format(a.updated_at) }}{{ a.updated_at !== a.created_at ? '（已编辑）' : '' }}</span>
+                <span class="ann-actions-inline">
+                  <el-button link size="small" @click="startEditAnn(a)">编辑</el-button>
+                  <el-button link size="small" type="danger" @click="removeAnn(a)">删除</el-button>
+                </span>
+              </div>
+            </template>
+          </li>
+          <li v-if="!annotations.length && !annLoading" class="empty">学过之后有心得？写在这里</li>
+        </ul>
+      </el-tab-pane>
+
+      <!-- 练习题 -->
+      <el-tab-pane label="练习" name="exercises" lazy>
+        <ExercisePanel :node-id="node.id" />
+      </el-tab-pane>
+
+      <!-- 关联知识点 -->
+      <el-tab-pane :label="`关联 ${relatedList.length ? '(' + relatedList.length + ')' : ''}`" name="related" lazy>
+        <ul class="rel-list">
+          <li v-for="r in relatedList" :key="r.edgeId">
+            <el-tag :type="r.relation === 'prerequisite' ? 'warning' : 'primary'" size="small">
+              {{ RELATION_LABEL[r.relation as keyof typeof RELATION_LABEL] }}
+            </el-tag>
+            <a class="rel-link" @click.prevent="emit('jump', r.other!.id)">{{ r.other?.title ?? '(未知)' }}</a>
+          </li>
+          <li v-if="!relatedList.length" class="empty">在画布上连线即可建立关联</li>
+        </ul>
+      </el-tab-pane>
+    </el-tabs>
   </div>
 </template>
 
