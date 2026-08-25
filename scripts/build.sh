@@ -12,7 +12,7 @@ pnpm build
 cd ..
 
 echo '==> [2/3] 拷贝 frontend/dist -> web/dist'
-rm -rf web/dist
+find web/dist -mindepth 1 -not -name '.placeholder' -delete 2>/dev/null || true
 mkdir -p web/dist
 cp -r frontend/dist/* web/dist/
 

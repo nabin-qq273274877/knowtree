@@ -1,4 +1,4 @@
-﻿# knowtree 构建发布脚本（Windows）
+# knowtree 构建发布脚本（Windows）
 # 用法：pwsh scripts/build.ps1 [-FrontendOnly]
 param(
     [switch]$FrontendOnly
@@ -16,7 +16,9 @@ if ($LASTEXITCODE -ne 0) { Pop-Location; exit 1 }
 Pop-Location
 
 Write-Host '==> [2/3] 拷贝 frontend/dist -> web/dist' -ForegroundColor Cyan
-Remove-Item "$root\web\dist" -Recurse -Force -ErrorAction SilentlyContinue
+Get-ChildItem "$root\web\dist" -Force -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -ne '.placeholder' } |
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path "$root\web\dist" | Out-Null
 Copy-Item "$root\frontend\dist\*" "$root\web\dist\" -Recurse -Force
 

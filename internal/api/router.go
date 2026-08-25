@@ -1,6 +1,7 @@
 package api
 
 import (
+	"io/fs"
 	"net/http"
 	"strings"
 
@@ -10,6 +11,14 @@ import (
 	"github.com/nabin-qq273274877/knowtree/internal/config"
 	web "github.com/nabin-qq273274877/knowtree/web"
 )
+
+// 前端未构建时的兜底页面（正常发布二进制内嵌的是真实前端，不会走到这里）
+const fallbackHTML = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><title>knowtree</title></head>
+<body style="font-family:system-ui;padding:40px;line-height:1.8">
+<h2>knowtree 前端尚未构建</h2>
+<p>当前二进制内含占位页面。请运行 <code>scripts/build.ps1</code>（或 build.sh）完成前端构建与编译。</p>
+<p>开发模式请使用 Vite Dev Server（http://localhost:5173），API 已代理到本服务。REST API 可用：<code>GET /api/health</code></p>
+</body></html>`
 
 type Server struct {
 	cfg *config.Config
@@ -59,11 +68,20 @@ func registerSPA(r *gin.Engine) {
 		return
 	}
 	fileServer := http.FileServer(http.FS(dist))
+	hasIndex := false
+	if st, err := fs.Stat(dist, "index.html"); err == nil && !st.IsDir() {
+		hasIndex = true
+	}
 
 	r.NoRoute(func(c *gin.Context) {
 		p := c.Request.URL.Path
 		if strings.HasPrefix(p, "/api/") || p == "/api" {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+
+		if !hasIndex {
+			c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(fallbackHTML))
 			return
 		}
 
