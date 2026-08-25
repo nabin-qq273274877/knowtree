@@ -1,4 +1,4 @@
-# knowtree 构建发布脚本（Windows）
+﻿# knowtree 构建发布脚本（Windows）
 # 用法：pwsh scripts/build.ps1 [-FrontendOnly]
 param(
     [switch]$FrontendOnly

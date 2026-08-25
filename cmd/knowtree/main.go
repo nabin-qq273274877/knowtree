@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"os"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -21,6 +22,10 @@ var (
 
 func main() {
 	cfg := config.Load(version, buildTime, commit)
+
+	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
+		log.Fatalf("[knowtree] create data dir %s: %v", cfg.DataDir, err)
+	}
 
 	sqlDB, err := db.Open(cfg.DataDir)
 	if err != nil {
