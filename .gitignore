@@ -1,0 +1,14 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+lib/
+dist/
+*.tsbuildinfo
+
+# dsh runtime artifacts
+.dsh-*/
+
+# misc
+.DS_Store
