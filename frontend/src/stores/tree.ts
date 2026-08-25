@@ -1,0 +1,119 @@
+import { defineStore } from 'pinia'
+import { api } from '@/api/client'
+import type { KNode, NodeStatus, EdgeRelation, KEdge } from '@/types'
+
+interface NodesState {
+  nodes: KNode[]
+  edges: KEdge[]
+  loading: boolean
+}
+
+export const useTreeStore = defineStore('tree', {
+  state: (): NodesState => ({
+    nodes: [],
+    edges: [],
+    loading: false,
+  }),
+
+  getters: {
+    byId(state): Map<string, KNode> {
+      return new Map(state.nodes.map((n) => [n.id, n]))
+    },
+    // 树形结构：根 + children（M2 画布与后续大纲导航共用）
+    tree(state): TreeNode[] {
+      const childrenOf = new Map<string | null, KNode[]>()
+      for (const n of state.nodes) {
+        const key = n.parent_id ?? null
+        if (!childrenOf.has(key)) childrenOf.set(key, [])
+        childrenOf.get(key)!.push(n)
+      }
+      const build = (parent: string | null): TreeNode[] =>
+        (childrenOf.get(parent) ?? []).map((n) => ({
+          node: n,
+          children: build(n.id),
+        }))
+      return build(null)
+    },
+  },
+
+  actions: {
+    async loadAll() {
+      this.loading = true
+      try {
+        const [nodes, edges] = await Promise.all([
+          api.get<KNode[]>('/api/nodes'),
+          api.get<KEdge[]>('/api/edges'),
+        ])
+        this.nodes = nodes
+        this.edges = edges
+      } finally {
+        this.loading = false
+      }
+    },
+
+    async createNode(title: string, parentId: string | null) {
+      const n = await api.post<KNode>('/api/nodes', { title, parent_id: parentId })
+      this.nodes.push(n)
+      return n
+    },
+
+    async updateNode(id: string, patch: Partial<Pick<KNode, 'title' | 'content_md' | 'status' | 'stage' | 'pos_x' | 'pos_y'>>) {
+      const updated = await api.patch<KNode>(`/api/nodes/${id}`, patch)
+      const i = this.nodes.findIndex((x) => x.id === id)
+      if (i >= 0) this.nodes[i] = updated
+      return updated
+    },
+
+    async moveNode(id: string, parentId: string | null) {
+      const updated = await api.post<KNode>(`/api/nodes/${id}/move`, { parent_id: parentId })
+      const i = this.nodes.findIndex((x) => x.id === id)
+      if (i >= 0) this.nodes[i] = updated
+      return updated
+    },
+
+    async deleteNode(id: string): Promise<number> {
+      const res = await api.delete<{ deleted: number }>(`/api/nodes/${id}`)
+      this.nodes = this.nodes.filter(
+        (n) => n.id !== id && !this.isDescendantCached(n.id, id),
+      )
+      await this.loadAll() // 级联删除范围以服务端为准，简单起见全量刷新
+      return res.deleted
+    },
+
+    isDescendantCached(nodeId: string, ancestorId: string): boolean {
+      const map = this.byId
+      let cur = map.get(nodeId)
+      let guard = 0
+      while (cur?.parent_id && guard < 64) {
+        if (cur.parent_id === ancestorId) return true
+        cur = map.get(cur.parent_id)
+        guard++
+      }
+      return false
+    },
+
+    async createEdge(sourceId: string, targetId: string, relation: EdgeRelation) {
+      const e = await api.post<KEdge>('/api/edges', {
+        source_id: sourceId,
+        target_id: targetId,
+        relation,
+      })
+      this.edges.push(e)
+      return e
+    },
+
+    async deleteEdge(id: string) {
+      await api.delete(`/api/edges/${id}`)
+      this.edges = this.edges.filter((e) => e.id !== id)
+    },
+
+    setStatus(id: string, status: NodeStatus) {
+      return this.updateNode(id, { status })
+    },
+  },
+})
+
+export interface TreeNode {
+  node: KNode
+  children: TreeNode[]
+}
