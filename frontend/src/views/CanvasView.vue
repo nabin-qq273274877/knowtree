@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   VueFlow,
   useVueFlow,
@@ -23,6 +23,7 @@ import '@vue-flow/minimap/dist/style.css'
 
 import { useTreeStore } from '@/stores/tree'
 import KnowledgeNode from '@/components/canvas/KnowledgeNode.vue'
+import DetailDrawer from '@/components/canvas/DetailDrawer.vue'
 import { LINE_STYLE, RELATION_LABEL, STATUS_META } from '@/utils/meta'
 import type { EdgeRelation, KNode, NodeStatus } from '@/types'
 
@@ -107,6 +108,8 @@ const flowEdges = computed(() => {
 
 // ---------- 连线类型 ----------
 const relationType = ref<EdgeRelation>('related')
+// 连线模式开关：开启后点击节点用于连线（对齐 tree-link.html 点选交互），关闭时点击=打开详情
+const connectMode = ref(false)
 
 async function createEdgeBetween(sourceId: string, targetId: string) {
   try {
@@ -123,17 +126,22 @@ function onConnect(conn: Connection) {
   }
 }
 
-// 点选连线：选中 A 后再点 B 即连 A-B
+// 点选连线：仅在「连线模式」开启时生效；普通点击 = 选中并打开详情
 function onNodeClick({ node }: NodeMouseEvent) {
   const id = node.id as string
-  if (pendingSourceId.value && pendingSourceId.value !== id) {
-    const src = pendingSourceId.value
-    clearPending()
-    void createEdgeBetween(src, id)
-    return
-  }
-  if (pendingSourceId.value === id) {
-    clearPending()
+  if (connectMode.value) {
+    if (pendingSourceId.value && pendingSourceId.value !== id) {
+      const src = pendingSourceId.value
+      clearPending()
+      void createEdgeBetween(src, id)
+      return
+    }
+    if (pendingSourceId.value === id) {
+      clearPending()
+      return
+    }
+    selectedEdgeId.value = null
+    selectedNodeId.value = id
     return
   }
   selectedEdgeId.value = null
@@ -231,6 +239,7 @@ function onKeydown(ev: KeyboardEvent) {
     clearPending()
     selectedNodeId.value = null
     selectedEdgeId.value = null
+    drawerOpen.value = false
   } else if (ev.key === 'Delete' || ev.key === 'Backspace') {
     if (selectedEdgeId.value) {
       void removeEdge(selectedEdgeId.value)
@@ -253,7 +262,25 @@ async function removeEdge(id: string) {
 }
 
 // ---------- 节点操作 ----------
-const showInspector = computed(() => !!selectedNode.value)
+const drawerOpen = ref(false)
+const drawerRef = ref<InstanceType<typeof DetailDrawer> | null>(null)
+
+watch(selectedNodeId, (id) => {
+  if (id && !connectMode.value) drawerOpen.value = true
+})
+
+// 关联知识点跳转：切换详情并居中该节点
+function jumpTo(id: string) {
+  selectedNodeId.value = id
+  void nextTick(() => fitView({ nodes: [id], duration: 300, padding: 0.4 }))
+}
+
+// 抽屉关闭时冲刷未保存的正文
+function onDrawerClosed() {
+  drawerRef.value?.flushSave()
+}
+
+// 当前选中节点（操作函数共用）
 const selectedNode = computed<KNode | undefined>(() =>
   selectedNodeId.value ? store.byId.get(selectedNodeId.value) : undefined,
 )
@@ -334,9 +361,7 @@ async function removeNode(id: string) {
 }
 
 async function setStatus(status: NodeStatus) {
-  const n = selectedNode.value
-  if (!n) return
-  await store.setStatus(n.id, status)
+  if (selectedNodeId.value) await store.setStatus(selectedNodeId.value, status)
 }
 </script>
 
@@ -356,8 +381,16 @@ async function setStatus(status: NodeStatus) {
       <el-button :icon="FullScreen" size="small" @click="fitView({ padding: 0.12, duration: 250 })">
         适应屏幕
       </el-button>
+      <el-divider direction="vertical" />
+      <el-tooltip content="开启后：点击两个节点即建立所选类型的连线；关闭时点击节点打开详情" placement="bottom">
+        <span class="mode-switch">
+          连线模式
+          <el-switch v-model="connectMode" size="small" />
+        </span>
+      </el-tooltip>
       <span class="hint">
-        <b>锚点拉线</b> 或 <b>点选两节点</b> 建立连线 · <b>Delete</b> 删除选中 · <b>Esc</b> 取消 · 双击空白处拖动平移
+        <template v-if="connectMode"><b>点选两节点</b>建立连线 · 或从锚点拉线</template>
+        <template v-else><b>点击节点</b>查看详情 · 锚点拉线连线 · <b>Delete</b> 删除选中 · <b>Esc</b> 取消</template>
       </span>
     </div>
 
@@ -392,38 +425,21 @@ async function setStatus(status: NodeStatus) {
         <span><i class="line related"></i>一般关联</span>
       </div>
 
-      <!-- 右侧迷你操作面板（M3 将升级为完整详情面板） -->
-      <transition name="slide">
-        <div v-if="showInspector && selectedNode" class="inspector">
-          <div class="inspector__title">{{ selectedNode.title }}</div>
-          <div class="inspector__row">
-            <span class="dot" :style="{ background: STATUS_META[selectedNode.status].color }" />
-            {{ STATUS_META[selectedNode.status].label }}
-            <span class="stage-tag" v-if="selectedNode.stage">{{ selectedNode.stage }}</span>
-          </div>
-
-          <div class="inspector__section">学习状态</div>
-          <el-select :model-value="selectedNode.status" size="small" @change="(v: NodeStatus) => setStatus(v)">
-            <el-option v-for="(m, k) in STATUS_META" :key="k" :value="k" :label="m.label" />
-          </el-select>
-
-          <div class="inspector__section">操作</div>
-          <div class="inspector__btns">
-            <el-button size="small" @click="addChild">＋ 下级</el-button>
-            <el-button size="small" @click="addSibling">＋ 同级</el-button>
-            <el-button size="small" @click="renameSelected">重命名</el-button>
-            <el-button size="small" type="danger" plain @click="removeNode(selectedNode!.id)">删除</el-button>
-          </div>
-
-          <div class="inspector__section">关联</div>
-          <div class="inspector__rel">
-            {{
-              store.edges.filter((e) => e.source_id === selectedNode!.id || e.target_id === selectedNode!.id).length
-            }}
-            条连线 · 详情面板 M3 提供
-          </div>
-        </div>
-      </transition>
+      <!-- 详情抽屉（FR-3）：正文 Markdown+KaTeX / 资源 / 批注 / 关联 -->
+      <el-drawer
+        v-model="drawerOpen"
+        :with-header="false"
+        size="560px"
+        :append-to-body="false"
+        @closed="onDrawerClosed"
+      >
+        <DetailDrawer
+          ref="drawerRef"
+          :node-id="selectedNodeId"
+          @close="drawerOpen = false"
+          @jump="jumpTo"
+        />
+      </el-drawer>
     </div>
   </div>
 </template>
@@ -460,6 +476,14 @@ async function setStatus(status: NodeStatus) {
 
 .hint b {
   color: #51607a;
+}
+
+.mode-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #38445c;
 }
 
 .flow-wrap {

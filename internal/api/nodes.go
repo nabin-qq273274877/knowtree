@@ -55,7 +55,14 @@ type setPositionsReq struct {
 
 func (s *Server) listNodes(c *gin.Context) {
 	var nodes []models.Node
-	if err := s.db.Order("sort_order ASC, created_at ASC").Find(&nodes).Error; err != nil {
+	// 附带批注数（画布角标 FR-10）
+	err := s.db.Raw(`
+		SELECT n.*,
+		       (SELECT COUNT(*) FROM annotations a WHERE a.node_id = n.id) AS annotation_count
+		FROM nodes n
+		ORDER BY n.sort_order ASC, n.created_at ASC`).
+		Scan(&nodes).Error
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

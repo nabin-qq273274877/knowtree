@@ -23,6 +23,7 @@ export interface KNode {
   source_note: string | null
   created_at: number
   updated_at: number
+  annotation_count: number
 }
 
 export interface KEdge {
@@ -32,6 +33,25 @@ export interface KEdge {
   relation: EdgeRelation
   label: string | null
   created_at: number
+}
+
+export interface KResource {
+  id: string
+  node_id: string
+  kind: 'link' | 'file'
+  title: string
+  url: string | null
+  path: string | null
+  note: string | null
+  created_at: number
+}
+
+export interface KAnnotation {
+  id: string
+  node_id: string
+  content_md: string
+  created_at: number
+  updated_at: number
 }
 
 export interface VersionInfo {

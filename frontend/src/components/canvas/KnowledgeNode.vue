@@ -33,12 +33,16 @@ const status = computed(() => STATUS_META[props.data.node.status])
       <span class="kt-node__status" :style="{ background: status.color }">{{ status.label }}</span>
       <span v-if="data.node.stage" class="kt-node__stage">{{ data.node.stage }}</span>
     </div>
+    <span v-if="data.node.annotation_count > 0" class="kt-node__badge" title="批注数">
+      ✎ {{ data.node.annotation_count }}
+    </span>
   </div>
 </template>
 
 <style scoped>
 .kt-node {
   --status-color: #b8c0cc;
+  position: relative;
   min-width: 120px;
   max-width: 220px;
   padding: 10px 14px;
@@ -50,6 +54,19 @@ const status = computed(() => STATUS_META[props.data.node.status])
   transition:
     border-color 0.12s,
     box-shadow 0.12s;
+}
+
+.kt-node__badge {
+  position: absolute;
+  top: -9px;
+  right: -9px;
+  background: #fff7ed;
+  color: #e8590c;
+  border: 1px solid #fdba74;
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 8px;
 }
 
 .kt-node:hover {

@@ -17,6 +17,9 @@ type Node struct {
 	SourceNote       *string `gorm:"column:source_note" json:"source_note"`
 	CreatedAt        int64   `gorm:"column:created_at" json:"created_at"`
 	UpdatedAt        int64   `gorm:"column:updated_at" json:"updated_at"`
+
+	// 列表查询时经子查询填充（只读字段，不参与写入）
+	AnnotationCount int `gorm:"->" json:"annotation_count"`
 }
 
 func (Node) TableName() string { return "nodes" }

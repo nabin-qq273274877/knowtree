@@ -49,6 +49,17 @@ func NewRouter(cfg *config.Config, gdb *gorm.DB) *gin.Engine {
 		g.DELETE("/nodes/:id", s.deleteNode)
 		g.POST("/nodes/:id/move", s.moveNode)
 
+		// 教学资源（FR-5）
+		g.GET("/nodes/:id/resources", s.listResources)
+		g.POST("/nodes/:id/resources", s.createResource)
+		g.DELETE("/resources/:id", s.deleteResource)
+
+		// 批注 / 学习心得（FR-10）
+		g.GET("/nodes/:id/annotations", s.listAnnotations)
+		g.POST("/nodes/:id/annotations", s.createAnnotation)
+		g.PATCH("/annotations/:id", s.updateAnnotation)
+		g.DELETE("/annotations/:id", s.deleteAnnotation)
+
 		// 连线（自由关联，层级不在此表）
 		g.GET("/edges", s.listEdges)
 		g.POST("/edges", s.createEdge)
