@@ -13,6 +13,7 @@ bin/
 
 # runtime data（SQLite + 上传文件，绝不入库）
 data/
+data-*/
 
 # 内嵌前端产物：构建时由脚本填充，仅保留占位文件保证 go:embed 可编译
 /web/dist/*
