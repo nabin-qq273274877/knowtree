@@ -57,6 +57,25 @@ export const useTreeStore = defineStore('tree', {
       return n
     },
 
+    async setPositions(
+      items: { id: string; pos_x: number; pos_y: number }[],
+    ) {
+      if (!items.length) return
+      await api.post('/api/nodes/positions', { nodes: items })
+      const map = new Map(items.map((i) => [i.id, i]))
+      for (const n of this.nodes) {
+        const p = map.get(n.id)
+        if (p) {
+          n.pos_x = p.pos_x
+          n.pos_y = p.pos_y
+        }
+      }
+    },
+
+    async savePosition(id: string, pos_x: number, pos_y: number) {
+      await this.setPositions([{ id, pos_x, pos_y }])
+    },
+
     async updateNode(id: string, patch: Partial<Pick<KNode, 'title' | 'content_md' | 'status' | 'stage' | 'pos_x' | 'pos_y'>>) {
       const updated = await api.patch<KNode>(`/api/nodes/${id}`, patch)
       const i = this.nodes.findIndex((x) => x.id === id)

@@ -41,6 +41,16 @@ type moveNodeReq struct {
 	SortOrder *float64 `json:"sort_order"`
 }
 
+type positionItem struct {
+	ID   string  `json:"id"`
+	PosX float64 `json:"pos_x"`
+	PosY float64 `json:"pos_y"`
+}
+
+type setPositionsReq struct {
+	Nodes []positionItem `json:"nodes"`
+}
+
 // ---- handlers ----
 
 func (s *Server) listNodes(c *gin.Context) {
@@ -205,6 +215,30 @@ func (s *Server) moveNode(c *gin.Context) {
 }
 
 // ---- helpers ----
+
+// setPositions 批量保存画布坐标（拖拽落点、自动排布）。
+func (s *Server) setPositions(c *gin.Context) {
+	var req setPositionsReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	now := time.Now().Unix()
+	updated := 0
+	for _, it := range req.Nodes {
+		res := s.db.Model(&models.Node{}).Where("id = ?", it.ID).Updates(map[string]any{
+			"pos_x":      it.PosX,
+			"pos_y":      it.PosY,
+			"updated_at": now,
+		})
+		if res.Error != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": res.Error.Error()})
+			return
+		}
+		updated += int(res.RowsAffected)
+	}
+	c.JSON(http.StatusOK, gin.H{"updated": updated})
+}
 
 func (s *Server) nodeExists(id *string) bool {
 	var cnt int64

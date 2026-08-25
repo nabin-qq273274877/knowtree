@@ -40,6 +40,8 @@ func NewRouter(cfg *config.Config, gdb *gorm.DB) *gin.Engine {
 		g.GET("/settings", s.getSettings)
 		g.PUT("/settings", s.putSettings)
 
+		g.POST("/nodes/positions", s.setPositions)
+
 		// 节点（知识点树）
 		g.GET("/nodes", s.listNodes)
 		g.POST("/nodes", s.createNode)
