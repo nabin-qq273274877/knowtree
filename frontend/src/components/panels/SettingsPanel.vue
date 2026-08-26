@@ -1,8 +1,17 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+// 设置面板（Dialog 版）：LLM 配置 / 数据管理 / 版本与更新
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '@/api/client'
 import type { VersionInfo } from '@/types'
+
+const props = defineProps<{ modelValue: boolean }>()
+const emit = defineEmits<{ (e: 'update:modelValue', v: boolean): void }>()
+
+const visible = computed({
+  get: () => props.modelValue,
+  set: (v) => emit('update:modelValue', v),
+})
 
 // ---------- 版本 ----------
 const version = ref<VersionInfo | null>(null)
@@ -229,117 +238,133 @@ async function testLLM() {
 </script>
 
 <template>
-  <div class="page" style="max-width: 760px">
-    <el-card shadow="never" style="margin-bottom: 16px">
-      <template #header><span style="font-weight: 600">LLM 配置</span></template>
-      <el-form label-width="110px" v-loading="llmLoading">
-        <el-form-item label="API Base URL">
-          <el-input v-model="llmForm.base_url" placeholder="https://api.deepseek.com/v1（OpenAI 兼容地址）" />
-        </el-form-item>
-        <el-form-item label="API Key">
-          <el-input
-            v-model="llmForm.api_key"
-            type="password"
-            show-password
-            placeholder="sk-...（仅存本地数据库）"
-          />
-        </el-form-item>
-        <el-form-item label="模型名">
-          <el-input v-model="llmForm.model" placeholder="deepseek-chat / gpt-4o-mini / qwen-plus …" />
-        </el-form-item>
-        <el-form-item label="Temperature">
-          <el-slider v-model="llmForm.temperature" :min="0" :max="2" :step="0.1" style="width: 260px" show-input />
-        </el-form-item>
-        <el-form-item label="Max Tokens">
-          <el-input-number v-model="llmForm.max_tokens" :min="128" :max="32768" :step="128" />
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" :loading="llmSaving" @click="saveLLM">保存设置</el-button>
-          <el-button :loading="testing" @click="testLLM">测试连接</el-button>
-        </el-form-item>
-        <el-form-item v-if="testResult">
-          <el-alert
-            :type="testResult.ok ? 'success' : 'error'"
-            :title="testResult.text"
-            :closable="false"
-            show-icon
-            style="width: 100%"
-          />
-        </el-form-item>
-      </el-form>
-    </el-card>
+  <el-dialog
+    v-model="visible"
+    title="⚙️ 设置"
+    width="780px"
+    top="4vh"
+    append-to-body
+    destroy-on-close
+    class="settings-dialog"
+  >
+    <div class="settings-body">
+      <el-card shadow="never" style="margin-bottom: 16px">
+        <template #header><span style="font-weight: 600">LLM 配置</span></template>
+        <el-form label-width="110px" v-loading="llmLoading">
+          <el-form-item label="API Base URL">
+            <el-input v-model="llmForm.base_url" placeholder="https://api.deepseek.com/v1（OpenAI 兼容地址）" />
+          </el-form-item>
+          <el-form-item label="API Key">
+            <el-input
+              v-model="llmForm.api_key"
+              type="password"
+              show-password
+              placeholder="sk-...（仅存本地数据库）"
+            />
+          </el-form-item>
+          <el-form-item label="模型名">
+            <el-input v-model="llmForm.model" placeholder="deepseek-chat / gpt-4o-mini / qwen-plus …" />
+          </el-form-item>
+          <el-form-item label="Temperature">
+            <el-slider v-model="llmForm.temperature" :min="0" :max="2" :step="0.1" style="width: 260px" show-input />
+          </el-form-item>
+          <el-form-item label="Max Tokens">
+            <el-input-number v-model="llmForm.max_tokens" :min="128" :max="32768" :step="128" />
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" :loading="llmSaving" @click="saveLLM">保存设置</el-button>
+            <el-button :loading="testing" @click="testLLM">测试连接</el-button>
+          </el-form-item>
+          <el-form-item v-if="testResult">
+            <el-alert
+              :type="testResult.ok ? 'success' : 'error'"
+              :title="testResult.text"
+              :closable="false"
+              show-icon
+              style="width: 100%"
+            />
+          </el-form-item>
+        </el-form>
+      </el-card>
 
-    <el-card shadow="never" style="margin-bottom: 16px">
-      <template #header><span style="font-weight: 600">数据管理</span></template>
-      <div class="data-grid">
-        <div class="data-item">
-          <div class="data-title">导出数据</div>
-          <div class="data-desc">全量知识点/连线/资源/练习/批注导出为 JSON</div>
-          <el-button size="small" @click="doExport">导出 JSON</el-button>
+      <el-card shadow="never" style="margin-bottom: 16px">
+        <template #header><span style="font-weight: 600">数据管理</span></template>
+        <div class="data-grid">
+          <div class="data-item">
+            <div class="data-title">导出数据</div>
+            <div class="data-desc">全量知识点/连线/资源/练习/批注导出为 JSON</div>
+            <el-button size="small" @click="doExport">导出 JSON</el-button>
+          </div>
+          <div class="data-item">
+            <div class="data-title">导入数据</div>
+            <div class="data-desc">从 knowtree 导出的 JSON 恢复（<b>覆盖现有全部数据</b>）</div>
+            <el-upload :show-file-list="false" accept=".json" :auto-upload="false" :on-change="onImportPick">
+              <el-button size="small" type="warning" plain>选择 JSON 导入</el-button>
+            </el-upload>
+          </div>
+          <div class="data-item">
+            <div class="data-title">备份数据库</div>
+            <div class="data-desc">SQLite 一致性快照（VACUUM INTO），可随时恢复</div>
+            <el-button size="small" @click="doBackup">下载备份 (.db)</el-button>
+          </div>
+          <div class="data-item">
+            <div class="data-title">从备份恢复</div>
+            <div class="data-desc">上传此前下载的 .db 备份（<b>覆盖现有全部数据</b>）</div>
+            <el-upload :show-file-list="false" accept=".db" :auto-upload="false" :on-change="onRestorePick">
+              <el-button size="small" type="danger" plain>选择 .db 恢复</el-button>
+            </el-upload>
+          </div>
         </div>
-        <div class="data-item">
-          <div class="data-title">导入数据</div>
-          <div class="data-desc">从 knowtree 导出的 JSON 恢复（<b>覆盖现有全部数据</b>）</div>
-          <el-upload :show-file-list="false" accept=".json" :auto-upload="false" :on-change="onImportPick">
-            <el-button size="small" type="warning" plain>选择 JSON 导入</el-button>
-          </el-upload>
-        </div>
-        <div class="data-item">
-          <div class="data-title">备份数据库</div>
-          <div class="data-desc">SQLite 一致性快照（VACUUM INTO），可随时恢复</div>
-          <el-button size="small" @click="doBackup">下载备份 (.db)</el-button>
-        </div>
-        <div class="data-item">
-          <div class="data-title">从备份恢复</div>
-          <div class="data-desc">上传此前下载的 .db 备份（<b>覆盖现有全部数据</b>）</div>
-          <el-upload :show-file-list="false" accept=".db" :auto-upload="false" :on-change="onRestorePick">
-            <el-button size="small" type="danger" plain>选择 .db 恢复</el-button>
-          </el-upload>
-        </div>
-      </div>
-    </el-card>
+      </el-card>
 
-    <el-card shadow="never">
-      <template #header><span style="font-weight: 600">版本与更新（FR-11）</span></template>
-      <el-descriptions :column="2" border>
-        <el-descriptions-item label="当前版本">{{ version?.version ?? '…' }}</el-descriptions-item>
-        <el-descriptions-item label="构建时间">{{ version?.build_time ?? '—' }}</el-descriptions-item>
-        <el-descriptions-item label="Git Commit" :span="2"><code>{{ version?.commit ?? '—' }}</code></el-descriptions-item>
-      </el-descriptions>
+      <el-card shadow="never">
+        <template #header><span style="font-weight: 600">版本与更新（FR-11）</span></template>
+        <el-descriptions :column="2" border>
+          <el-descriptions-item label="当前版本">{{ version?.version ?? '…' }}</el-descriptions-item>
+          <el-descriptions-item label="构建时间">{{ version?.build_time ?? '—' }}</el-descriptions-item>
+          <el-descriptions-item label="Git Commit" :span="2"><code>{{ version?.commit ?? '—' }}</code></el-descriptions-item>
+        </el-descriptions>
 
-      <div v-if="updateInfo" style="margin-top: 12px">
-        <el-alert :type="updateInfo.has_update ? 'success' : 'info'" :closable="false" show-icon>
-          <template #title>
-            <span v-if="updateInfo.has_update">发现新版本 <b>{{ updateInfo.latest }}</b>（当前 {{ updateInfo.current }}）</span>
-            <span v-else>已是最新版本{{ updateInfo.latest ? `：${updateInfo.latest}` : '' }}</span>
-          </template>
-          <pre v-if="updateInfo.notes" class="notes">{{ updateInfo.notes }}</pre>
-        </el-alert>
-      </div>
-      <div v-if="applyMsg" style="margin-top: 12px">
-        <el-alert :type="applyMsg.ok ? 'success' : 'error'" :title="applyMsg.text" :closable="false" show-icon />
-      </div>
+        <div v-if="updateInfo" style="margin-top: 12px">
+          <el-alert :type="updateInfo.has_update ? 'success' : 'info'" :closable="false" show-icon>
+            <template #title>
+              <span v-if="updateInfo.has_update">发现新版本 <b>{{ updateInfo.latest }}</b>（当前 {{ updateInfo.current }}）</span>
+              <span v-else>已是最新版本{{ updateInfo.latest ? `：${updateInfo.latest}` : '' }}</span>
+            </template>
+            <pre v-if="updateInfo.notes" class="notes">{{ updateInfo.notes }}</pre>
+          </el-alert>
+        </div>
+        <div v-if="applyMsg" style="margin-top: 12px">
+          <el-alert :type="applyMsg.ok ? 'success' : 'error'" :title="applyMsg.text" :closable="false" show-icon />
+        </div>
 
-      <div style="margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap">
-        <el-button type="primary" :loading="checking" @click="checkUpdate">检查更新</el-button>
-        <el-button
-          v-if="updateInfo?.has_update && updateInfo.asset_exists"
-          type="success"
-          :loading="applying"
-          @click="applyUpdate"
-        >一键更新到 {{ updateInfo.latest }}</el-button>
-        <el-button v-if="appliedOk" type="warning" @click="restartApp">重启应用</el-button>
-      </div>
-      <div class="src-row">
-        <span class="dim">更新源：</span>
-        <el-input v-model="updateSource" size="small" placeholder="默认 GitHub Releases，可填镜像 API 地址" style="width: 340px" />
-        <el-button size="small" @click="saveUpdateSource">保存</el-button>
-      </div>
-    </el-card>
-  </div>
+        <div style="margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap">
+          <el-button type="primary" :loading="checking" @click="checkUpdate">检查更新</el-button>
+          <el-button
+            v-if="updateInfo?.has_update && updateInfo.asset_exists"
+            type="success"
+            :loading="applying"
+            @click="applyUpdate"
+          >一键更新到 {{ updateInfo.latest }}</el-button>
+          <el-button v-if="appliedOk" type="warning" @click="restartApp">重启应用</el-button>
+        </div>
+        <div class="src-row">
+          <span class="dim">更新源：</span>
+          <el-input v-model="updateSource" size="small" placeholder="默认 GitHub Releases，可填镜像 API 地址" style="width: 340px" />
+          <el-button size="small" @click="saveUpdateSource">保存</el-button>
+        </div>
+      </el-card>
+    </div>
+  </el-dialog>
 </template>
 
 <style scoped>
+.settings-body {
+  max-height: 78vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
 .data-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -364,10 +389,6 @@ async function testLLM() {
   color: #8a94a6;
   margin-bottom: 10px;
   min-height: 32px;
-}
-
-.update-info {
-  margin-top: 12px;
 }
 
 .notes {

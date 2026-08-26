@@ -62,8 +62,9 @@ export const useTreeStore = defineStore('tree', {
           api.get<KNode[]>('/api/nodes'),
           api.get<KEdge[]>('/api/edges'),
         ])
-        this.nodes = nodes
-        this.edges = edges
+        // 空库时后端可能返回 null，统一兜底为数组
+        this.nodes = Array.isArray(nodes) ? nodes : []
+        this.edges = Array.isArray(edges) ? edges : []
       } finally {
         this.loading = false
       }

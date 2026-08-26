@@ -10,6 +10,7 @@ const props = defineProps<{
     node: KNode
     selected: boolean
     pending: boolean // 点选连线模式：该节点是待连接的源
+    stageColor?: string // 学段彩条同款颜色，未匹配时为灰色
   }
 }>()
 
@@ -31,7 +32,9 @@ const status = computed(() => STATUS_META[props.data.node.status])
     <div class="kt-node__title">{{ data.node.title }}</div>
     <div class="kt-node__meta">
       <span class="kt-node__status" :style="{ background: status.color }">{{ status.label }}</span>
-      <span v-if="data.node.stage" class="kt-node__stage">{{ data.node.stage }}</span>
+      <span v-if="data.node.stage" class="kt-node__stage">
+        <i class="stage-dot" :style="{ background: data.stageColor ?? '#cbd5e1' }" />{{ data.node.stage }}
+      </span>
     </div>
     <span v-if="data.node.annotation_count > 0" class="kt-node__badge" title="批注数">
       ✎ {{ data.node.annotation_count }}
@@ -111,6 +114,16 @@ const status = computed(() => STATUS_META[props.data.node.status])
   border-radius: 8px;
   padding: 2px 6px;
   line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.stage-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
 }
 
 /* 四向锚点：hover 节点时浮现 */
