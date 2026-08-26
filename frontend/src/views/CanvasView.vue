@@ -27,6 +27,7 @@ import NavControls from '@/components/canvas/NavControls.vue'
 import FloatingEdge from '@/components/canvas/FloatingEdge.vue'
 import SettingsPanel from '@/components/panels/SettingsPanel.vue'
 import StatsPanel from '@/components/panels/StatsPanel.vue'
+import HelpDrawer from '@/components/canvas/HelpDrawer.vue'
 import {
   GRADES,
   UNSET_GRADE,
@@ -163,14 +164,13 @@ function onEdgeDblClick({ edge }: EdgeMouseEvent) {
 // ---------- 拖拽落点持久化（含位置撤销 + 学段分区约束）----------
 const dragStartPos = ref<Map<string, { x: number; y: number }>>(new Map())
 
-/** 节点必须停留在自己学段分区内（允许少量溢出），y 只限制在画布顶部以下 */
+/** 节点左右不能拖出自己的学段分区（允许少量溢出）；上下不限制 */
 function clampToGradeCol(node: KNode): { x: number; y: number } {
   const col = gradeColumnRange(gradeColumnIndex(matchGrade(node.stage)?.key))
   const x0 = col.x0 - ZONE_TOLERANCE + COL_PAD
   const x1 = col.x1 + ZONE_TOLERANCE - COL_PAD
   const x = Math.min(Math.max(node.pos_x ?? 0, x0), Math.max(x0, x1 - nodeWidth))
-  const y = Math.max(node.pos_y ?? 0, 40)
-  return { x: Math.round(x), y: Math.round(y) }
+  return { x: Math.round(x), y: Math.round(node.pos_y ?? 0) }
 }
 
 function onDragStart(e: { node: GraphNode }) {
@@ -185,8 +185,8 @@ function onDragStop(e: { node: GraphNode }) {
   const limited = clampToGradeCol({ ...n, pos_x: dropped.x, pos_y: dropped.y })
   const x = limited.x
   const y = limited.y
-  // 只有被明显拽回（>30px）才提示，轻微贴边校正不打扰
-  if (Math.abs(x - dropped.x) > 30 || Math.abs(y - dropped.y) > 30) {
+  // 只有左右方向被明显拽回（>30px）才提示；上下方向不做限制
+  if (Math.abs(x - dropped.x) > 30) {
     const now = Date.now()
     if (now - lastClampWarnAt > 2500) {
       lastClampWarnAt = now
@@ -222,8 +222,23 @@ const TOP_Y = 60
 // 分区两侧允许的少量溢出（深层级允许越过分区中线一点）
 const ZONE_TOLERANCE = 240
 
+/** 实测每个节点的真实渲染高度（标题换行会让卡片变高，固定常量会导致排布叠加）。
+ *  节点 DOM 处于缩放容器内，getBoundingClientRect 是视觉尺寸，需除以当前缩放。 */
+function measureNodeHeights(): Map<string, number> {
+  const map = new Map<string, number>()
+  const zoom = vpZoom.value || 1
+  document.querySelectorAll<HTMLElement>('.vue-flow__node').forEach((el) => {
+    const id = el.getAttribute('data-id')
+    const h = el.getBoundingClientRect().height / zoom
+    if (id && h > 0) map.set(id, Math.ceil(h))
+  })
+  return map
+}
+
 function computeLayout(): Map<string, { x: number; y: number }> {
   const pos = new Map<string, { x: number; y: number }>()
+  const heights = measureNodeHeights()
+  const H = (n: KNode) => heights.get(n.id) ?? nodeHeight
 
   // 按学段分区分组
   const groups = new Map<number, KNode[]>()
@@ -258,17 +273,18 @@ function computeLayout(): Map<string, { x: number; y: number }> {
       visited.add(n.id)
       const kids = childrenOf.get(n.id) ?? []
       const x = colX0 + depth * (nodeWidth + LEVEL_GAP_X)
+      const h = H(n)
       if (!kids.length) {
         pos.set(n.id, { x, y: cursorY })
-        cursorY += nodeHeight + SIB_GAP
-        return nodeHeight + SIB_GAP
+        cursorY += h + SIB_GAP
+        return h + SIB_GAP
       }
       const startY = cursorY
       let totalH = 0
       for (const k of kids) totalH += place(k, depth + 1)
       const endY = cursorY - SIB_GAP // 最后一个子节点的下边界
       // 父节点垂直居中于子块
-      const y = startY + Math.max(0, (endY - startY - nodeHeight) / 2)
+      const y = startY + Math.max(0, (endY - startY - h) / 2)
       pos.set(n.id, { x, y })
       return totalH
     }
@@ -277,16 +293,66 @@ function computeLayout(): Map<string, { x: number; y: number }> {
 
     // 组内兜底：环等异常数据未放置的，排在已用区域下方
     if (visited.size < list.length) {
-      const maxY = Math.max(TOP_Y, ...[...pos.values()].map((p) => p.y))
-      let fy = maxY + nodeHeight + SIB_GAP
+      const maxY = Math.max(TOP_Y, ...[...pos.entries()].filter(([id]) => list.some((l) => l.id === id)).map(([, p]) => p.y))
+      let fy = maxY + H(list[0]) + SIB_GAP
       for (const n of list) {
         if (visited.has(n.id)) continue
         pos.set(n.id, { x: colX0, y: fy })
-        fy += nodeHeight + SIB_GAP
+        fy += H(n) + SIB_GAP
       }
     }
   }
+
+  // 全局防叠加：任意两节点矩形相交时，把靠右的那个向下推（不会推出自己的学段分区），
+  // 反复迭代直到没有重叠。解决相邻学段的深层列横向压到下一学段节点上的问题。
+  resolveOverlaps(pos, heights)
   return pos
+}
+
+/** 矩形防重叠兜底。重叠时把靠右（同学段则靠下）的那个节点，推到冲突块下方 GAP 处。 */
+function resolveOverlaps(
+  pos: Map<string, { x: number; y: number }>,
+  heights: Map<string, number>,
+) {
+  const GAP = 14
+  const rects = [...pos.entries()].map(([id, p]) => ({
+    id,
+    x: p.x,
+    y: p.y,
+    w: nodeWidth,
+    h: heights.get(id) ?? nodeHeight,
+    gi: gradeColumnIndex(matchGrade(store.byId.get(id)?.stage ?? '')?.key),
+  }))
+  const overlaps = (a: (typeof rects)[0], b: (typeof rects)[0]) =>
+    a.x < b.x + b.w - 1 && b.x < a.x + a.w - 1 && a.y < b.y + b.h - 1 && b.y < a.y + a.h - 1
+
+  let moved = true
+  let guard = 0
+  while (moved && guard++ < 300) {
+    moved = false
+    for (let i = 0; i < rects.length; i++) {
+      for (let j = i + 1; j < rects.length; j++) {
+        const a = rects[i]
+        const b = rects[j]
+        if (!overlaps(a, b)) continue
+        // 跨学段：靠右的下移（不会推出自己的分区）；同学段：靠下的让位
+        const target = a.gi !== b.gi ? (a.x <= b.x ? b : a) : a.y <= b.y ? b : a
+        // 推到所有与它相交的矩形的最低下边之下
+        let bottom = target.y
+        for (const other of rects) {
+          if (other === target || !overlaps(target, other)) continue
+          bottom = Math.max(bottom, other.y + other.h)
+        }
+        const ny = bottom + GAP
+        if (ny > target.y) {
+          target.y = ny
+          const p = pos.get(target.id)
+          if (p) p.y = ny
+          moved = true
+        }
+      }
+    }
+  }
 }
 
 const layouting = ref(false)
@@ -884,104 +950,6 @@ async function removeNode(id: string) {
   ElMessage.success(`已删除 ${deleted} 个节点（Ctrl+Z 可撤销）`)
 }
 
-// ---------- AI 生成子树 ----------
-interface DraftTreeNode {
-  title: string
-  summary?: string
-  children?: DraftTreeNode[]
-}
-const subOpen = ref(false)
-const subTopic = ref('')
-const subParent = ref<string | null>(null)
-const subStage = ref('')
-const subCount = ref(8)
-const subGenerating = ref(false)
-const subTree = ref<DraftTreeNode[]>([])
-const inserting = ref(false)
-
-function openSubDialog() {
-  subTopic.value = ''
-  subTree.value = []
-  subParent.value = selectedNodeId.value
-  // 默认学段：挂载点的学段；挂在根时用当前视口所在学段
-  const parent = selectedNodeId.value ? store.byId.get(selectedNodeId.value) : undefined
-  subStage.value = parent?.stage ?? currentViewportGrade() ?? ''
-  subOpen.value = true
-}
-
-async function generateSubtree() {
-  if (!subTopic.value.trim()) return
-  subGenerating.value = true
-  subTree.value = []
-  try {
-    const r = await api.post<{ tree: DraftTreeNode[] }>('/api/llm/generate-subtree', {
-      parent_id: subParent.value,
-      topic: subTopic.value.trim(),
-      count: subCount.value,
-    })
-    subTree.value = r.tree ?? []
-    if (!subTree.value.length) ElMessage.warning('模型没有生成内容，请重试')
-  } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : String(e))
-  } finally {
-    subGenerating.value = false
-  }
-}
-
-function countDraft(list: DraftTreeNode[]): number {
-  return list.reduce((s, d) => s + 1 + countDraft(d.children ?? []), 0)
-}
-
-async function insertDraftTree(list: DraftTreeNode[], parentId: string | null, stage?: string | null): Promise<number> {
-  let count = 0
-  for (const d of list) {
-    const n = await store.createNode(d.title, parentId, stage ?? null)
-    count++
-    if (d.children?.length) count += await insertDraftTree(d.children, n.id, stage ?? n.stage)
-  }
-  return count
-}
-
-async function confirmInsertSubtree() {
-  inserting.value = true
-  try {
-    // 学段优先级：对话框所选 > 挂载点学段；整棵子树统一使用，保证落进对应分区
-    const parentStage = subParent.value ? store.byId.get(subParent.value)?.stage ?? null : null
-    const stage = subStage.value || parentStage
-    const total = await insertDraftTree(subTree.value, subParent.value, stage)
-    subOpen.value = false
-    await autoLayout(true)
-    ElMessage.success(`已插入 ${total} 个知识点${stage ? `（${stage}）` : '（未知领域）'}`)
-  } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : String(e))
-  } finally {
-    inserting.value = false
-  }
-}
-
-const subTreeOptions = computed(() => toElTree(subTree.value))
-
-// 挂载点选择树
-interface TreeNode {
-  node: KNode
-  children: TreeNode[]
-}
-const parentOptions = computed(() => toOptions(store.tree))
-function toOptions(list: TreeNode[]): { value: string; label: string; children: unknown[] }[] {
-  return list.map((t) => ({
-    value: t.node.id,
-    label: t.node.title,
-    children: toOptions(t.children),
-  }))
-}
-
-function toElTree(list: DraftTreeNode[]): { label: string; children: unknown[] }[] {
-  return list.map((d) => ({
-    label: d.summary ? `${d.title}（${d.summary}）` : d.title,
-    children: toElTree(d.children ?? []),
-  }))
-}
-
 // ---------- 面板开关 ----------
 // 打开设置/统计前先收起详情抽屉，避免两层模态互相遮挡导致点击无效
 const settingsOpen = ref(false)
@@ -996,6 +964,20 @@ function openStats() {
   drawerOpen.value = false
   statsOpen.value = true
 }
+
+// ---------- 帮助抽屉（从左侧打开，与详情抽屉互斥） ----------
+const helpOpen = ref(false)
+
+function openHelp() {
+  drawerOpen.value = false
+  helpOpen.value = true
+}
+watch(helpOpen, (v) => {
+  if (v) drawerOpen.value = false
+})
+watch(drawerOpen, (v) => {
+  if (v) helpOpen.value = false
+})
 </script>
 
 <template>
@@ -1059,9 +1041,6 @@ function openStats() {
         <button class="dock-btn" title="按学段分区整理成层级树布局" :disabled="layouting" @click="autoLayout()">
           <span class="ico">✨</span><small>{{ layouting ? '排布中…' : '排布' }}</small>
         </button>
-        <button class="dock-btn" title="AI 批量生成知识点子树" @click="openSubDialog">
-          <span class="ico">🤖</span><small>AI 子树</small>
-        </button>
 
         <span class="dock-sep" />
 
@@ -1077,23 +1056,9 @@ function openStats() {
 
         <span class="dock-sep" />
 
-        <el-popover placement="top-end" :width="320" trigger="click">
-          <div class="legend">
-            <div class="legend__title">图例与帮助</div>
-            <div class="legend__row"><i class="ln hierarchy" />层级/学习先后：上层学完再学下层（多上可连多下）</div>
-            <div class="legend__tip">
-              建连线：hover 节点出现锚点，按住从一个节点拖到另一个节点<br />
-              同层/同级之间不允许连线；方向必须自上而下<br />
-              删除连线：双击连线，或单击选中后按 Delete<br />
-              顶部彩条 = 学段分区，宽度随该学段知识点数量变化
-            </div>
-          </div>
-          <template #reference>
-            <button class="dock-btn" title="图例与帮助">
-              <span class="ico">❔</span><small>图例</small>
-            </button>
-          </template>
-        </el-popover>
+        <button class="dock-btn" title="帮助文档" @click="openHelp">
+          <span class="ico">❔</span><small>帮助</small>
+        </button>
       </div>
 
       <!-- 详情抽屉（FR-3）：正文 Markdown+KaTeX / 资源 / 批注 / 关联 -->
@@ -1112,55 +1077,8 @@ function openStats() {
         />
       </el-drawer>
 
-      <!-- AI 生成子树对话框 -->
-      <el-dialog v-model="subOpen" title="🤖 AI 生成知识点子树" width="560px" append-to-body>
-        <div v-if="!subTree.length" style="display: flex; flex-direction: column; gap: 12px">
-          <el-input
-            v-model="subTopic"
-            placeholder="主题，如：人教版八年级物理·浮力"
-            @keyup.enter="generateSubtree"
-          />
-          <el-tree-select
-            v-model="subParent"
-            :data="parentOptions"
-            :props="{ label: 'label', value: 'value' }"
-            check-strictly
-            clearable
-            filterable
-            placeholder="挂载到（留空=根）"
-          />
-          <el-select v-model="subStage" clearable placeholder="学段（默认跟随挂载点）" style="width: 100%">
-            <el-option value="" label="未知领域（暂不归类）" />
-            <el-option v-for="g in GRADES" :key="g.key" :value="g.label" :label="g.label" />
-          </el-select>
-          <div style="display: flex; align-items: center; gap: 10px">
-            <span class="dim">节点数</span>
-            <el-input-number v-model="subCount" :min="3" :max="30" />
-            <el-button type="primary" :loading="subGenerating" @click="generateSubtree">生成预览</el-button>
-          </div>
-        </div>
-        <div v-else>
-          <el-alert type="info" :closable="false" style="margin-bottom: 12px"
-            :title="`共 ${countDraft(subTree)} 个节点，确认后入库并自动排布`" />
-          <el-tree :data="subTreeOptions" default-expand-all :props="{ label: 'label', children: 'children' }" style="max-height: 46vh; overflow: auto" />
-        </div>
-        <template #footer>
-          <span style="display: flex; justify-content: space-between; width: 100%">
-            <span>
-              <el-button v-if="subTree.length" @click="subTree = []">重新生成</el-button>
-            </span>
-            <span>
-              <el-button @click="subOpen = false">取消</el-button>
-              <el-button
-                v-if="subTree.length"
-                type="primary"
-                :loading="inserting"
-                @click="confirmInsertSubtree"
-              >入库</el-button>
-            </span>
-          </span>
-        </template>
-      </el-dialog>
+      <!-- 帮助抽屉：从左侧打开 -->
+      <HelpDrawer v-model="helpOpen" />
 
       <!-- 新建知识点对话框：标题 + 学段 -->
       <el-dialog v-model="addDialog.open" title="➕ 新建知识点" width="420px" append-to-body>
@@ -1327,43 +1245,6 @@ function openStats() {
   background: rgba(255, 255, 255, 0.14);
   margin: 0 6px;
   flex-shrink: 0;
-}
-
-/* ---------- 图例弹层 ---------- */
-.legend__title {
-  font-weight: 700;
-  font-size: 13px;
-  color: #26334d;
-  margin-bottom: 6px;
-}
-
-.legend__row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: #51607a;
-  padding: 3px 0;
-}
-
-.legend .ln {
-  display: inline-block;
-  width: 24px;
-  height: 0;
-  border-top: 2px solid;
-}
-
-.ln.hierarchy {
-  border-color: #9aa7bf;
-  border-top-width: 1.5px;
-}
-
-.legend__tip {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px dashed #e4e9f2;
-  font-size: 11px;
-  color: #98a2b3;
 }
 
 .dim {

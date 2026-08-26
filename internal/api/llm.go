@@ -293,62 +293,6 @@ func repairTruncatedJSON(s string) (string, bool) {
 	return s, true
 }
 
-// ---- POST /api/llm/generate-subtree ----
-
-type subtreeReq struct {
-	ParentID *string `json:"parent_id"`
-	Topic    string  `json:"topic"`
-	Count    int     `json:"count"`
-}
-
-type draftNode struct {
-	Title    string      `json:"title"`
-	Summary  string      `json:"summary,omitempty"`
-	Children []draftNode `json:"children,omitempty"`
-}
-
-func (s *Server) llmGenerateSubtree(c *gin.Context) {
-	cfg, ok := s.loadLLM(c)
-	if !ok {
-		return
-	}
-	var req subtreeReq
-	if err := c.ShouldBindJSON(&req); err != nil || req.Topic == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "topic is required"})
-		return
-	}
-	if req.Count <= 0 || req.Count > 50 {
-		req.Count = 8
-	}
-
-	stageHint := ""
-	parentCtx := ""
-	if req.ParentID != nil && *req.ParentID != "" {
-		stageHint = s.buildNodeContext(*req.ParentID)
-		if stageHint != "" {
-			parentCtx = "挂在以下已有知识点之下：\n" + stageHint
-		}
-	}
-
-	prompt := fmt.Sprintf(`请为主题「%s」设计一棵用于个人学习的知识点子树。
-要求：
-- 总节点数约 %d 个，层级不超过 3 层；
-- 粒度：每个叶子是一个可在 30 分钟内学完的具体知识点；
-- 若提供了已有上下文，标题风格与层级需与之衔接；
-- 只输出 JSON 数组，元素格式：{"title":"...","summary":"一句话说明","children":[同结构递归]}，叶子节点省略 children。`,
-		req.Topic, req.Count)
-	if parentCtx != "" {
-		prompt += "\n\n" + parentCtx
-	}
-
-	var tree []draftNode
-	if err := callJSON(c, cfg, prompt, &tree); err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": "生成失败：" + err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"tree": tree})
-}
-
 // ---- POST /api/llm/generate-exercises ----
 
 type genExReq struct {
