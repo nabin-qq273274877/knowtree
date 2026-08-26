@@ -3,9 +3,9 @@
 // 1. 渲染时实时计算两节点边框锚点，线贴着节点边框（无空隙）
 // 2. 若连线创建时记录了用户拖拽的把手方向（data.sh / data.th = t/r/b/l），
 //    优先从那个方向出线，符合「从上面连就从上面出」的直觉
-// 3. 直线连接，不做多余弯折；选中时高亮
+// 3. 贝塞尔曲线连接，带自然弧度；选中时高亮
 import { computed } from 'vue'
-import { BaseEdge, EdgeLabelRenderer, getStraightPath, useVueFlow, type EdgeProps } from '@vue-flow/core'
+import { BaseEdge, EdgeLabelRenderer, getBezierPath, Position, useVueFlow, type EdgeProps } from '@vue-flow/core'
 
 const props = defineProps<EdgeProps>()
 
@@ -70,9 +70,17 @@ const geometry = computed(() => {
 
   let sa: Anchor | null = sh && sA[sh] ? sA[sh] : null
   let ta: Anchor | null = th && tA[th] ? tA[th] : null
+  let saSide: Side | null = sh ?? null
+  let taSide: Side | null = th ?? null
 
-  if (!sa && ta) sa = nearest(sList, ta)
-  if (!ta && sa) ta = nearest(tList, sa)
+  if (!sa && ta) {
+    sa = nearest(sList, ta)
+    saSide = sideOf(sa, sA)
+  }
+  if (!ta && sa) {
+    ta = nearest(tList, sa)
+    taSide = sideOf(ta, tA)
+  }
   if (!sa || !ta) {
     // 双方都未指定：取整体最近的一对
     let best: { a: Anchor; b: Anchor; d: number } | null = null
@@ -85,17 +93,41 @@ const geometry = computed(() => {
     if (best) {
       sa = best.a
       ta = best.b
+      saSide = sideOf(sa, sA)
+      taSide = sideOf(ta, tA)
     }
   }
   if (!sa || !ta) {
     return { sx: props.sourceX, sy: props.sourceY, tx: props.targetX, ty: props.targetY }
   }
-  return { sx: sa.x, sy: sa.y, tx: ta.x, ty: ta.y }
+  return { sx: sa.x, sy: sa.y, tx: ta.x, ty: ta.y, ss: saSide, ts: taSide }
 })
+
+function sideOf(a: Anchor, set: Record<Side, Anchor>): Side {
+  if (set.t === a) return 't'
+  if (set.r === a) return 'r'
+  if (set.b === a) return 'b'
+  return 'l'
+}
+
+const SIDE_TO_POS = {
+  t: Position.Top,
+  r: Position.Right,
+  b: Position.Bottom,
+  l: Position.Left,
+} as const
 
 const path = computed(() => {
   const g = geometry.value
-  const [p] = getStraightPath({ sourceX: g.sx, sourceY: g.sy, targetX: g.tx, targetY: g.ty })
+  const [p] = getBezierPath({
+    sourceX: g.sx,
+    sourceY: g.sy,
+    targetX: g.tx,
+    targetY: g.ty,
+    sourcePosition: SIDE_TO_POS[(g.ss ?? 'r') as Side],
+    targetPosition: SIDE_TO_POS[(g.ts ?? 'l') as Side],
+    curvature: 0.4,
+  })
   return p
 })
 

@@ -111,7 +111,6 @@ const flowEdges = computed(() => {
         source: e.source_id,
         target: e.target_id,
         type: 'floating',
-        label: '前置',
         markerEnd: MarkerType.ArrowClosed,
         style: { ...LINE_STYLE.prerequisite },
         data,
@@ -223,16 +222,15 @@ function onDragStop(e: { node: GraphNode }) {
   }
 }
 
-// ---------- 自动排布（学段分区内的整洁层级树，参考 mindmap / org-chart）----------
-// 每个学段占一条纵向分区（与顶部彩条一一对应）；分区内做经典整齐树布局：
-// 子节点排在父节点下一层、水平依次展开，父节点水平居中于子块上方，
-// 整棵子树保持连续不与其他子树交错，一级一级清晰可读。
+// ---------- 自动排布（学段分区内的左→右层级树，参考 mindmap）----------
+// 每个学段占一条纵向分区（与顶部彩条一一对应）；分区内做横向整齐树：
+// 根在左侧，子节点向右一层层展开；兄弟纵向排列，父节点垂直居中于子块。
 const COL_PAD = 28
-const SIB_GAP = 20 // 兄弟节点水平间距
-const LEVEL_GAP = 64 // 层与层的垂直间距
+const SIB_GAP = 18 // 兄弟节点垂直间距
+const LEVEL_GAP_X = 44 // 层与层的水平间距
 const TOP_Y = 60
-// 分区两侧允许的少量溢出（兄弟较多时允许越过分区中线一点，避免挤压重叠）
-const ZONE_TOLERANCE = 130
+// 分区两侧允许的少量溢出（深层级允许越过分区中线一点）
+const ZONE_TOLERANCE = 240
 
 function computeLayout(): Map<string, { x: number; y: number }> {
   const pos = new Map<string, { x: number; y: number }>()
@@ -247,7 +245,7 @@ function computeLayout(): Map<string, { x: number; y: number }> {
 
   for (const [gi, list] of [...groups.entries()].sort((a, b) => a[0] - b[0])) {
     const col = gradeColumnRange(gi)
-    let cursor = col.x0 + COL_PAD
+    const colX0 = col.x0 + COL_PAD
 
     const idsInGroup = new Set(list.map((n) => n.id))
     const childrenOf = new Map<string, KNode[]>()
@@ -262,35 +260,39 @@ function computeLayout(): Map<string, { x: number; y: number }> {
       }
     }
 
+    let cursorY = TOP_Y
     const visited = new Set<string>()
 
-    const place = (n: KNode, depth: number): void => {
+    /** 返回该子树占用的总高度 */
+    const place = (n: KNode, depth: number): number => {
       visited.add(n.id)
       const kids = childrenOf.get(n.id) ?? []
-      const y = TOP_Y + depth * (nodeHeight + LEVEL_GAP)
+      const x = colX0 + depth * (nodeWidth + LEVEL_GAP_X)
       if (!kids.length) {
-        pos.set(n.id, { x: cursor, y })
-        cursor += nodeWidth + SIB_GAP
-        return
+        pos.set(n.id, { x, y: cursorY })
+        cursorY += nodeHeight + SIB_GAP
+        return nodeHeight + SIB_GAP
       }
-      const kidStart = cursor
-      for (const k of kids) place(k, depth + 1)
-      const kidEnd = cursor - SIB_GAP // 最后一个子节点的右边界
-      // 父节点在子块上方水平居中；至少不早于自己的分配起点
-      const centerX = Math.max(kidStart, kidStart + (kidEnd - kidStart - nodeWidth) / 2)
-      pos.set(n.id, { x: Math.round(centerX), y })
+      const startY = cursorY
+      let totalH = 0
+      for (const k of kids) totalH += place(k, depth + 1)
+      const endY = cursorY - SIB_GAP // 最后一个子节点的下边界
+      // 父节点垂直居中于子块
+      const y = startY + Math.max(0, (endY - startY - nodeHeight) / 2)
+      pos.set(n.id, { x, y })
+      return totalH
     }
 
-    for (const r of roots) place(r, 0)
+    for (const r of roots) void place(r, 0)
 
     // 组内兜底：环等异常数据未放置的，排在已用区域下方
     if (visited.size < list.length) {
       const maxY = Math.max(TOP_Y, ...[...pos.values()].map((p) => p.y))
-      let fy = maxY + nodeHeight + LEVEL_GAP
+      let fy = maxY + nodeHeight + SIB_GAP
       for (const n of list) {
         if (visited.has(n.id)) continue
-        pos.set(n.id, { x: col.x0 + COL_PAD, y: fy })
-        fy += nodeHeight + LEVEL_GAP
+        pos.set(n.id, { x: colX0, y: fy })
+        fy += nodeHeight + SIB_GAP
       }
     }
   }
@@ -627,77 +629,76 @@ async function createWithPosition(
   return n
 }
 
-async function promptTitle(prefix: string): Promise<string | null> {
-  try {
-    const r = await ElMessageBox.prompt(prefix, '新建知识点', {
-      confirmButtonText: '创建',
-      cancelButtonText: '取消',
-      inputPattern: /\S/,
-      inputErrorMessage: '标题不能为空',
-    })
-    return r.value.trim() || null
-  } catch {
-    return null
+// ---------- 新建节点对话框：标题 + 学段 ----------
+interface AddDialogState {
+  open: boolean
+  mode: 'root' | 'child' | 'sibling'
+  parentId: string | null
+  parentTitle: string
+  title: string
+  stage: string
+}
+const addDialog = ref<AddDialogState>({
+  open: false,
+  mode: 'root',
+  parentId: null,
+  parentTitle: '',
+  title: '',
+  stage: '',
+})
+const lastUsedStage = ref('')
+
+function openAddDialog(mode: AddDialogState['mode'], base?: KNode | null) {
+  const parent = mode === 'child' ? (base ?? null) : mode === 'sibling' ? (base?.parent_id ? store.byId.get(base.parent_id) ?? null : null) : null
+  addDialog.value = {
+    open: true,
+    mode,
+    parentId: parent?.id ?? null,
+    parentTitle: parent?.title ?? '',
+    title: '',
+    // 默认学段：子级/同级继承所属父节点的学段；顶层用上次选择的学段
+    stage: parent ? parent.stage ?? '' : lastUsedStage.value,
   }
 }
 
-/** 功能坞「新建」：有选中节点时挂为其子节点，否则建为顶层节点（放视口中心，钳制在学段分区内） */
-async function addNodeManual() {
-  const parent = selectedNode.value
-  const title = await promptTitle(parent ? `作为「${parent.title}」的子节点创建` : '将创建为顶层节点')
-  if (!title) return
+/** 功能坞「新建」：有选中节点时挂为其子级，否则建为顶层节点 */
+function addNodeManual() {
+  const sel = selectedNode.value
+  if (sel) openAddDialog('child', sel)
+  else openAddDialog('root')
+}
+
+async function confirmAddNode() {
+  const d = addDialog.value
+  const title = d.title.trim()
+  if (!title) {
+    ElMessage.warning('标题不能为空')
+    return
+  }
+  const stage = d.stage || null
+  lastUsedStage.value = d.stage
   try {
     let x: number
     let y: number
-    // 新节点继承父节点的学段；顶层节点默认无学段（可在详情里设置）
-    const stage = parent?.stage ?? null
-    if (parent) {
-      // 脑图式：子节点在父节点右侧，向下找空位
+    if (d.mode === 'child' && d.parentId) {
+      const parent = store.byId.get(d.parentId)
+      if (!parent) throw new Error('父节点不存在')
       x = (parent.pos_x ?? 0) + nodeWidth + SLOT_GAP_X
       y = parent.pos_y ?? 60
+    } else if (d.mode === 'sibling' && d.parentId) {
+      const siblingBase = selectedNode.value
+      x = siblingBase?.pos_x ?? 0
+      y = (siblingBase?.pos_y ?? 60) + nodeHeight + SLOT_GAP_Y
     } else {
       const v = readViewport()
       x = Math.round((wrapSize.value.w / 2 - v.x) / v.zoom - nodeWidth / 2)
       y = Math.round((wrapSize.value.h / 2 - v.y) / v.zoom - nodeHeight / 2)
     }
     const p = findFreeSpot(stage, x, y)
-    const n = await createWithPosition(title, parent?.id ?? null, stage, p.x, p.y)
+    const n = await createWithPosition(title, d.mode === 'root' ? null : d.parentId, stage, p.x, p.y)
+    addDialog.value.open = false
     selectedNodeId.value = n.id
-  } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : String(e))
-  }
-}
-
-/** 节点 hover 操作条：增加下一级 */
-async function addChildAt(nodeId: string) {
-  const parent = store.byId.get(nodeId)
-  if (!parent) return
-  const title = await promptTitle(`作为「${parent.title}」的下一级创建`)
-  if (!title) return
-  try {
-    // 脑图式：子节点排在父节点右侧，向下找不重叠的空位
-    const wantX = (parent.pos_x ?? 0) + nodeWidth + SLOT_GAP_X
-    const p = findFreeSpot(parent.stage, wantX, parent.pos_y ?? 60)
-    const n = await createWithPosition(title, parent.id, parent.stage, p.x, p.y)
-    selectedNodeId.value = n.id
-    ElMessage.success('已创建下级节点')
-  } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : String(e))
-  }
-}
-
-/** 节点 hover 操作条：增加同级 */
-async function addSiblingAt(nodeId: string) {
-  const base = store.byId.get(nodeId)
-  if (!base) return
-  const title = await promptTitle(base.parent_id ? `在「${store.byId.get(base.parent_id)?.title ?? ''}」下创建同级节点` : '将创建为顶层节点')
-  if (!title) return
-  try {
-    // 同级节点排在本节点正下方，向下找不重叠的空位
-    const p = findFreeSpot(base.stage, base.pos_x ?? 0, (base.pos_y ?? 60) + nodeHeight + SLOT_GAP_Y)
-    const n = await createWithPosition(title, base.parent_id, base.stage, p.x, p.y)
-    selectedNodeId.value = n.id
-    ElMessage.success('已创建同级节点')
+    ElMessage.success(`已创建${stage ? `（${stage}）` : ''}`)
   } catch (e) {
     ElMessage.error(e instanceof Error ? e.message : String(e))
   }
@@ -878,8 +879,19 @@ function toElTree(list: DraftTreeNode[]): { label: string; children: unknown[] }
 }
 
 // ---------- 面板开关 ----------
+// 打开设置/统计前先收起详情抽屉，避免两层模态互相遮挡导致点击无效
 const settingsOpen = ref(false)
 const statsOpen = ref(false)
+
+function openSettings() {
+  drawerOpen.value = false
+  settingsOpen.value = true
+}
+
+function openStats() {
+  drawerOpen.value = false
+  statsOpen.value = true
+}
 </script>
 
 <template>
@@ -905,8 +917,8 @@ const statsOpen = ref(false)
         <template #node-kt="ktProps">
           <KnowledgeNode
             :data="ktProps.data"
-            @add-child="addChildAt(ktProps.data.node.id)"
-            @add-sibling="addSiblingAt(ktProps.data.node.id)"
+            @add-child="openAddDialog('child', ktProps.data.node)"
+            @add-sibling="openAddDialog('sibling', ktProps.data.node)"
             @remove="removeNode(ktProps.data.node.id)"
           />
         </template>
@@ -921,7 +933,7 @@ const statsOpen = ref(false)
       <GradeBar :segments="gradeSegments" :active-key="activeGradeKey" @select="focusGrade" />
 
       <!-- 右上角设置 -->
-      <button class="gear-btn" title="设置" @click="settingsOpen = true">
+      <button class="gear-btn" title="设置" @click="openSettings">
         <el-icon><Setting /></el-icon>
       </button>
 
@@ -954,7 +966,7 @@ const statsOpen = ref(false)
         <button class="dock-btn" title="重做（Ctrl+Y）" @click="doRedo">
           <span class="ico">↪️</span><small>重做</small>
         </button>
-        <button class="dock-btn" title="学习统计" @click="statsOpen = true">
+        <button class="dock-btn" title="学习统计" @click="openStats">
           <span class="ico">📊</span><small>统计</small>
         </button>
 
@@ -1039,6 +1051,36 @@ const statsOpen = ref(false)
               >入库</el-button>
             </span>
           </span>
+        </template>
+      </el-dialog>
+
+      <!-- 新建知识点对话框：标题 + 学段 -->
+      <el-dialog v-model="addDialog.open" title="➕ 新建知识点" width="420px" append-to-body>
+        <el-form label-width="72px" @submit.prevent>
+          <el-form-item label="挂载位置">
+            <span class="dim">
+              {{ addDialog.mode === 'root' ? '顶层节点' : addDialog.parentTitle ? `「${addDialog.parentTitle}」的下级` : '顶层节点' }}
+            </span>
+          </el-form-item>
+          <el-form-item label="标题">
+            <el-input
+              v-model="addDialog.title"
+              placeholder="知识点标题"
+              maxlength="60"
+              autofocus
+              @keyup.enter="confirmAddNode"
+            />
+          </el-form-item>
+          <el-form-item label="学段">
+            <el-select v-model="addDialog.stage" clearable placeholder="选择所属学段" style="width: 100%">
+              <el-option value="" label="未知领域（暂不归类）" />
+              <el-option v-for="g in GRADES" :key="g.key" :value="g.label" :label="g.label" />
+            </el-select>
+          </el-form-item>
+        </el-form>
+        <template #footer>
+          <el-button @click="addDialog.open = false">取消</el-button>
+          <el-button type="primary" @click="confirmAddNode">创建</el-button>
         </template>
       </el-dialog>
 

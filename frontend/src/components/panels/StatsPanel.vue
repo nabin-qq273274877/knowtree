@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 学习统计面板（Dialog 版）
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { api } from '@/api/client'
 import { STATUS_META } from '@/utils/meta'
 import type { NodeStatus } from '@/types'
@@ -26,13 +26,20 @@ interface StatsData {
 const stats = ref<StatsData | null>(null)
 const loading = ref(true)
 
-onMounted(async () => {
+async function load() {
+  loading.value = true
   try {
     stats.value = await api.get<StatsData>('/api/stats')
   } finally {
     loading.value = false
   }
+}
+
+// 每次打开都重新拉取最新统计
+watch(visible, (v) => {
+  if (v) void load()
 })
+void load()
 
 const statusOrder: NodeStatus[] = ['mastered', 'partial', 'learning', 'forgotten', 'not_started']
 </script>
@@ -44,7 +51,6 @@ const statusOrder: NodeStatus[] = ['mastered', 'partial', 'learning', 'forgotten
     width="860px"
     top="5vh"
     append-to-body
-    destroy-on-close
     class="stats-dialog"
   >
     <div class="stats-body" v-loading="loading">

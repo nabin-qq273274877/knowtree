@@ -382,7 +382,7 @@ defineExpose({ flushSave })
       </el-tab-pane>
 
       <!-- 练习题 -->
-      <el-tab-pane label="练习" name="exercises" lazy>
+      <el-tab-pane label="📝 习题/试卷" name="exercises" lazy>
         <ExercisePanel :node-id="node.id" />
       </el-tab-pane>
 

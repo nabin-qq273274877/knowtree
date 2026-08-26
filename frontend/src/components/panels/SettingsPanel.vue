@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 设置面板（Dialog 版）：LLM 配置 / 数据管理 / 版本与更新
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '@/api/client'
 import type { VersionInfo } from '@/types'
@@ -37,6 +37,20 @@ onMounted(async () => {
   } catch {
     /* 显示未知 */
   }
+})
+
+// 每次打开面板都刷新版本与配置
+watch(visible, (v) => {
+  if (!v) return
+  void (async () => {
+    try {
+      version.value = await api.get<VersionInfo>('/api/version')
+    } catch {
+      /* ignore */
+    }
+    await loadLLM()
+    detectProvider(llmForm.value.base_url)
+  })()
 })
 
 async function checkUpdate() {
@@ -152,31 +166,70 @@ async function onRestorePick(f: UploadFile) {
 }
 
 // ---------- LLM 配置 ----------
-// 常用服务商预设（统一 OpenAI 兼容协议），含本地部署的 Ollama / LM Studio
-const PROVIDERS: { key: string; label: string; base: string; models: string; local?: boolean }[] = [
-  { key: 'deepseek', label: 'DeepSeek 深度求索', base: 'https://api.deepseek.com/v1', models: 'deepseek-chat / deepseek-reasoner' },
-  { key: 'openai', label: 'OpenAI', base: 'https://api.openai.com/v1', models: 'gpt-4o / gpt-4o-mini / o3-mini' },
-  { key: 'moonshot', label: 'Kimi 月之暗面', base: 'https://api.moonshot.cn/v1', models: 'moonshot-v1-8k / kimi-k2-0711-preview' },
-  { key: 'qwen', label: '通义千问 DashScope', base: 'https://dashscope.aliyuncs.com/compatible-mode/v1', models: 'qwen-plus / qwen-turbo / qwen-max' },
-  { key: 'zhipu', label: '智谱 GLM', base: 'https://open.bigmodel.cn/api/paas/v4', models: 'glm-4-plus / glm-4-air / glm-4-flash（Key 格式：id.secret）' },
-  { key: 'siliconflow', label: '硅基流动 SiliconFlow', base: 'https://api.siliconflow.cn/v1', models: 'deepseek-ai/DeepSeek-V3 / Qwen/Qwen2.5-72B-Instruct' },
-  { key: 'openrouter', label: 'OpenRouter 聚合', base: 'https://openrouter.ai/api/v1', models: 'openai/gpt-4o-mini / deepseek/deepseek-chat …' },
-  { key: 'ollama', label: 'Ollama（本机）', base: 'http://localhost:11434/v1', models: 'llama3.1 / qwen2.5（API Key 可留空）', local: true },
-  { key: 'lmstudio', label: 'LM Studio（本机）', base: 'http://localhost:1234/v1', models: '已加载的模型名（API Key 可留空）', local: true },
+// 常用服务商预设（统一 OpenAI 兼容协议），云端 / 本地分组
+interface ProviderPreset {
+  key: string
+  label: string
+  base: string
+  models: string
+  local?: boolean
+}
+
+const PROVIDER_GROUPS: { label: string; items: ProviderPreset[] }[] = [
+  {
+    label: '云端服务',
+    items: [
+      { key: 'deepseek', label: 'DeepSeek 深度求索', base: 'https://api.deepseek.com/v1', models: 'deepseek-chat / deepseek-reasoner' },
+      { key: 'openai', label: 'OpenAI', base: 'https://api.openai.com/v1', models: 'gpt-4o / gpt-4o-mini / o3-mini' },
+      { key: 'moonshot', label: 'Kimi 月之暗面', base: 'https://api.moonshot.cn/v1', models: 'moonshot-v1-8k / kimi-k2-0711-preview' },
+      { key: 'qwen', label: '通义千问 DashScope', base: 'https://dashscope.aliyuncs.com/compatible-mode/v1', models: 'qwen-plus / qwen-turbo / qwen-max' },
+      { key: 'zhipu', label: '智谱 GLM', base: 'https://open.bigmodel.cn/api/paas/v4', models: 'glm-4-plus / glm-4-air / glm-4-flash' },
+      { key: 'doubao', label: '豆包 火山方舟', base: 'https://ark.cn-beijing.volces.com/api/v3', models: 'doubao-pro-32k（或接入点 ep-xxx）' },
+      { key: 'hunyuan', label: '腾讯混元', base: 'https://api.hunyuan.cloud.tencent.com/v1', models: 'hunyuan-turbo / hunyuan-standard' },
+      { key: 'qianfan', label: '百度千帆 V2', base: 'https://qianfan.baidubce.com/v2', models: 'ernie-4.0-8k / ernie-3.5-8k' },
+      { key: 'minimax', label: 'MiniMax', base: 'https://api.minimax.chat/v1', models: 'abab6.5s-chat / abab6.5g-chat' },
+      { key: 'lingyi', label: '零一万物', base: 'https://api.lingyiwanwu.com/v1', models: 'yi-large / yi-medium' },
+      { key: 'stepfun', label: '阶跃星辰', base: 'https://api.stepfun.com/v1', models: 'step-1-8k / step-2-16k' },
+      { key: 'baichuan', label: '百川智能', base: 'https://api.baichuan-ai.com/v1', models: 'Baichuan4 / Baichuan3-Turbo' },
+      { key: 'sensecore', label: '商汤日日新', base: 'https://api.sensenova.cn/compatible-mode/v1', models: 'SenseChat-5 / SenseChat-Turbo' },
+      { key: 'siliconflow', label: '硅基流动 SiliconFlow', base: 'https://api.siliconflow.cn/v1', models: 'deepseek-ai/DeepSeek-V3 / Qwen/Qwen2.5-72B-Instruct' },
+      { key: 'openrouter', label: 'OpenRouter 聚合', base: 'https://openrouter.ai/api/v1', models: 'openai/gpt-4o-mini / deepseek/deepseek-chat …' },
+      { key: 'groq', label: 'Groq', base: 'https://api.groq.com/openai/v1', models: 'llama-3.3-70b-versatile / mixtral-8x7b' },
+      { key: 'mistral', label: 'Mistral', base: 'https://api.mistral.ai/v1', models: 'mistral-large-latest / mistral-small-latest' },
+      { key: 'xai', label: 'xAI Grok', base: 'https://api.x.ai/v1', models: 'grok-2 / grok-beta' },
+      { key: 'together', label: 'Together AI', base: 'https://api.together.xyz/v1', models: 'meta-llama/Llama-3.3-70B …' },
+      { key: 'fireworks', label: 'Fireworks AI', base: 'https://api.fireworks.ai/inference/v1', models: 'accounts/fireworks/models/…' },
+      { key: 'deepinfra', label: 'DeepInfra', base: 'https://api.deepinfra.com/v1/openai', models: 'meta-llama/… / Qwen/…' },
+      { key: 'perplexity', label: 'Perplexity', base: 'https://api.perplexity.ai', models: 'llama-3.1-sonar-small-online …' },
+    ],
+  },
+  {
+    label: '本地部署',
+    items: [
+      { key: 'ollama', label: 'Ollama', base: 'http://localhost:11434/v1', models: 'llama3.1 / qwen2.5（Key 可留空）', local: true },
+      { key: 'lmstudio', label: 'LM Studio', base: 'http://localhost:1234/v1', models: '已加载的模型名（Key 可留空）', local: true },
+      { key: 'vllm', label: 'vLLM', base: 'http://localhost:8000/v1', models: '启动时 --model 指定的模型名', local: true },
+      { key: 'localai', label: 'LocalAI', base: 'http://localhost:8080/v1', models: '本地配置的模型名（Key 可留空）', local: true },
+      { key: 'jan', label: 'Jan', base: 'http://127.0.0.1:1337/v1', models: '已下载的模型名（Key 可留空）', local: true },
+    ],
+  },
 ]
+
+const ALL_PROVIDERS = PROVIDER_GROUPS.flatMap((g) => g.items)
 
 const providerKey = ref('')
 const modelHint = ref('')
 
 function applyProvider(key: string) {
-  const p = PROVIDERS.find((x) => x.key === key)
+  const p = ALL_PROVIDERS.find((x) => x.key === key)
   if (!p) return
   llmForm.value.base_url = p.base
   modelHint.value = p.models
 }
 
 function detectProvider(baseUrl: string) {
-  const hit = PROVIDERS.find((p) => baseUrl && p.base.replace(/^https?:\/\//, '') === baseUrl.trim().replace(/^https?:\/\//, '').replace(/\/$/, ''))
+  const norm = (u: string) => u.trim().replace(/^https?:\/\//, '').replace(/\/$/, '')
+  const hit = ALL_PROVIDERS.find((p) => norm(p.base) === norm(baseUrl))
   providerKey.value = hit?.key ?? ''
 }
 
@@ -261,7 +314,6 @@ async function testLLM() {
     width="780px"
     top="4vh"
     append-to-body
-    destroy-on-close
     class="settings-dialog"
   >
     <div class="settings-body">
@@ -273,11 +325,14 @@ async function testLLM() {
               <el-select
                 v-model="providerKey"
                 clearable
+                filterable
                 placeholder="选择后自动填入地址（也可自定义）"
                 style="width: 100%"
                 @change="applyProvider"
               >
-                <el-option v-for="p in PROVIDERS" :key="p.key" :value="p.key" :label="p.label + (p.local ? ' · 本地' : '')" />
+                <el-option-group v-for="g in PROVIDER_GROUPS" :key="g.label" :label="g.label">
+                  <el-option v-for="p in g.items" :key="p.key" :value="p.key" :label="p.label" />
+                </el-option-group>
               </el-select>
               <div v-if="modelHint" class="provider-hint">参考模型：{{ modelHint }}</div>
             </div>
@@ -350,19 +405,24 @@ async function testLLM() {
 
       <el-card shadow="never">
         <template #header><span style="font-weight: 600">版本与更新</span></template>
-        <el-descriptions :column="2" border>
-          <el-descriptions-item label="当前版本">{{ version?.version ?? '…' }}</el-descriptions-item>
-          <el-descriptions-item label="构建时间">{{ version?.build_time ?? '—' }}</el-descriptions-item>
-          <el-descriptions-item label="Git Commit" :span="2"><code>{{ version?.commit ?? '—' }}</code></el-descriptions-item>
-        </el-descriptions>
+        <div class="ver-rows" v-loading="checking">
+          <div class="ver-row">
+            <span class="ver-label">当前版本</span>
+            <span class="ver-val">{{ version?.version ?? '…' }}</span>
+          </div>
+          <div class="ver-row">
+            <span class="ver-label">最新版本</span>
+            <span class="ver-val">{{ updateInfo?.latest ?? '点击「检查更新」获取' }}</span>
+          </div>
+        </div>
 
-        <div v-if="updateInfo" style="margin-top: 12px">
-          <el-alert :type="updateInfo.has_update ? 'success' : 'info'" :closable="false" show-icon>
-            <template #title>
-              <span v-if="updateInfo.has_update">发现新版本 <b>{{ updateInfo.latest }}</b>（当前 {{ updateInfo.current }}）</span>
-              <span v-else>已是最新版本{{ updateInfo.latest ? `：${updateInfo.latest}` : '' }}</span>
-            </template>
-            <pre v-if="updateInfo.notes" class="notes">{{ updateInfo.notes }}</pre>
+        <div v-if="updateInfo && !updateInfo.has_update" style="margin-top: 12px">
+          <el-alert type="success" :closable="false" show-icon title="已是最新版本" />
+        </div>
+        <div v-if="updateInfo?.notes" style="margin-top: 12px">
+          <el-alert type="info" :closable="false" show-icon>
+            <template #title>新版本说明</template>
+            <pre class="notes">{{ updateInfo.notes }}</pre>
           </el-alert>
         </div>
         <div v-if="applyMsg" style="margin-top: 12px">
@@ -431,6 +491,31 @@ async function testLLM() {
   font-size: 12px;
   color: #98a2b3;
   line-height: 1.5;
+}
+
+.ver-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ver-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.ver-label {
+  width: 72px;
+  font-size: 13px;
+  color: #8a94a6;
+  text-align: right;
+}
+
+.ver-val {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1f2b45;
 }
 
 .dim {
