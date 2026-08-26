@@ -62,7 +62,7 @@ func main() {
 		defer f.Close()
 		log.SetOutput(io.MultiWriter(f, os.Stderr))
 	}
-	log.Printf("[desktop] v%s starting (data: %s)", version, *dataDir)
+	log.Printf("[desktop] %s starting (data: %s)", version, *dataDir)
 
 	sqlDB, err := db.Open(*dataDir)
 	if err != nil {
