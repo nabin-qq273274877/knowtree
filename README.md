@@ -17,10 +17,6 @@
 - **帮助抽屉**：左下角「帮助」打开左侧 70% 宽的文档抽屉
 - **统计**：知识点总数 / 掌握占比 / 关联连线 / 批注 / 练习题分布
 
-## 文档
-
-- [需求文档 v1.6](docs/requirements-v1.md)
-
 ## 快速开始
 
 ### 构建
@@ -85,6 +81,3 @@ git push origin v0.1.0
 
 打包时自动附带 `checksums.txt`（SHA256 校验和）。升级 = 替换可执行文件，`data\` 目录原样保留。
 
-## Git 提交约定
-
-本地逐功能提交。主分支名为 `main`（本地已改名）；远端 `origin` 已配置为 `github.com/nabin-qq273274877/knowtree`，仓库创建后 `git push -u origin main` 推送。
