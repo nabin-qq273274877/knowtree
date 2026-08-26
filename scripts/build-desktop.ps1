@@ -35,7 +35,8 @@ $ldflags = "-s -w -H windowsgui -X main.version=$version -X main.buildTime=$buil
 New-Item -ItemType Directory -Force -Path "$root\bin" | Out-Null
 
 $env:CGO_ENABLED = '0'
-go build -trimpath -ldflags $ldflags -o "$root\bin\knowtree-desktop.exe" ./cmd/knowtree-desktop
+# Wails 必须带 desktop,production 构建标签，否则运行时会弹「missing build tags」错误框
+go build -tags "desktop,production" -trimpath -ldflags $ldflags -o "$root\bin\knowtree-desktop.exe" ./cmd/knowtree-desktop
 if ($LASTEXITCODE -ne 0) { exit 1 }
 
 $size = [math]::Round((Get-Item "$root\bin\knowtree-desktop.exe").Length / 1MB, 1)

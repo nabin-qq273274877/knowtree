@@ -56,8 +56,8 @@ go run ./cmd/knowtree
 # 终端 2：Vite 前端（热更新，API 自动代理到 6006 端口）
 cd frontend && pnpm install && pnpm dev   # http://localhost:6006
 
-# 桌面客户端开发调试（带控制台日志）
-go run ./cmd/knowtree-desktop -data .\data
+# 桌面客户端开发调试（带控制台日志；必须带 desktop,production 标签）
+go run -tags desktop,production ./cmd/knowtree-desktop -data .\data
 ```
 
 ## 目录结构
