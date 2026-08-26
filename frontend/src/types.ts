@@ -5,6 +5,7 @@ export type NodeStatus =
   | 'learning'
   | 'partial'
   | 'mastered'
+  | 'partial_forgotten'
   | 'forgotten'
 
 export type EdgeRelation = 'prerequisite' | 'related'

@@ -3,7 +3,6 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   VueFlow,
   useVueFlow,
-  MarkerType,
   ConnectionMode,
   type Connection,
   type NodeMouseEvent,
@@ -35,6 +34,7 @@ import {
   matchGrade,
   gradeColumnIndex,
   gradeColumnRange,
+  type GradeDef,
 } from '@/utils/meta'
 import { api } from '@/api/client'
 import type { KNode } from '@/types'
@@ -105,23 +105,13 @@ const flowEdges = computed(() => {
   const rel = store.edges.map((e) => {
     const anch = edgeAnchors.value.get(e.id)
     const data = anch ? { sh: anch.s, th: anch.t } : undefined
-    if (e.relation === 'prerequisite') {
-      return {
-        id: e.id,
-        source: e.source_id,
-        target: e.target_id,
-        type: 'floating',
-        markerEnd: MarkerType.ArrowClosed,
-        style: { ...LINE_STYLE.prerequisite },
-        data,
-      }
-    }
+    // 手工连线与层级线保持同一样式（连线只表达学习先后，一种样式即可）
     return {
       id: e.id,
       source: e.source_id,
       target: e.target_id,
       type: 'floating',
-      style: { ...LINE_STYLE.related },
+      style: { ...LINE_STYLE.hierarchy },
       data,
     }
   })
@@ -435,33 +425,91 @@ interface StageBucket {
   key: string
   label: string
   color: string
-  total: number
+  count: number
+  start: number
+  end: number
 }
+
+// 学段显示边界（世界坐标）：相邻学段按内容外沿取中点，空学段给固定槽位，
+// 两端留默认余量——拖动画布时彩条随内容自然过渡，空学段数量为 0 也照常显示。
+const LEADING_MARGIN = 420
 
 const gradeSegments = computed<GradeSegment[]>(() => {
   const r = visibleRect.value
-  const buckets = new Map<string, StageBucket>()
-  for (const g of GRADES) buckets.set(g.key, { key: g.key, label: g.label, color: g.color, total: 0 })
-  buckets.set(UNSET_GRADE.key, { key: UNSET_GRADE.key, label: UNSET_GRADE.label, color: UNSET_GRADE.color, total: 0 })
+
+  // 每个学段的内容范围；无节点的学段用分区中心当作零宽锚点
+  const items: StageBucket[] = [...GRADES, UNSET_GRADE as unknown as GradeDef].map((g) => ({
+    key: g.key,
+    label: g.label,
+    color: g.color,
+    count: 0,
+    start: 0,
+    end: 0,
+  }))
+  const byKey = new Map(items.map((it) => [it.key, it]))
   for (const n of store.nodes) {
-    const b = buckets.get(matchGrade(n.stage)?.key ?? UNSET_GRADE.key)
-    if (!b) continue
-    b.total++
-  }
-  // 学段分区（纵向条带）与视口相交即视为「在视野内」，与彩条一一对应
-  const segs = [...buckets.values()].map((b) => {
-    const col = gradeColumnRange(gradeColumnIndex(b.key))
-    return {
-      key: b.key,
-      label: b.label,
-      color: b.color,
-      count: b.total,
-      inView: b.total > 0 && col.x0 <= r.x1 && col.x1 >= r.x0,
+    const it = byKey.get(matchGrade(n.stage)?.key ?? UNSET_GRADE.key)
+    if (!it) continue
+    const x0 = n.pos_x ?? 0
+    if (it.count === 0) {
+      it.start = x0
+      it.end = x0 + nodeWidth
+    } else {
+      it.start = Math.min(it.start, x0)
+      it.end = Math.max(it.end, x0 + nodeWidth)
     }
-  })
-  // 「未设置」段只有在确实存在未匹配节点时才显示
-  return segs.filter((s) => s.key !== UNSET_GRADE.key || s.count > 0)
+    it.count++
+  }
+  for (const it of items) {
+    if (it.count === 0) {
+      const col = gradeColumnRange(gradeColumnIndex(it.key))
+      it.start = it.end = (col.x0 + col.x1) / 2
+    }
+  }
+
+  // 相邻学段边界 = 前者右沿与后者左沿的中点
+  const bounds: number[] = [items[0].start - LEADING_MARGIN]
+  for (let k = 1; k < items.length; k++) {
+    bounds.push((items[k - 1].end + items[k].start) / 2)
+  }
+  bounds.push(items[items.length - 1].end + LEADING_MARGIN)
+
+  return items.map((it, k) => ({
+    key: it.key,
+    label: it.label,
+    color: it.color,
+    count: it.count,
+    inView: bounds[k] <= r.x1 && bounds[k + 1] >= r.x0,
+  }))
 })
+
+/** 视口中心当前所处的学段标签（未知领域返回 ''），用于新建节点时给默认学段 */
+function currentViewportGrade(): string {
+  const r = visibleRect.value
+  const cx = (r.x0 + r.x1) / 2
+  const raw = [...GRADES, UNSET_GRADE as unknown as GradeDef].map((g) => {
+    const list = store.nodes.filter((n) => (matchGrade(n.stage)?.key ?? UNSET_GRADE.key) === g.key)
+    let start: number
+    let end: number
+    if (!list.length) {
+      const col = gradeColumnRange(gradeColumnIndex(g.key))
+      start = end = (col.x0 + col.x1) / 2
+    } else {
+      start = Math.min(...list.map((n) => n.pos_x ?? 0))
+      end = Math.max(...list.map((n) => (n.pos_x ?? 0) + nodeWidth))
+    }
+    return { key: g.key, label: g.label, start, end }
+  })
+  const bs: number[] = [raw[0].start - LEADING_MARGIN]
+  for (let k = 1; k < raw.length; k++) bs.push((raw[k - 1].end + raw[k].start) / 2)
+  bs.push(raw[raw.length - 1].end + LEADING_MARGIN)
+  for (let k = 0; k < raw.length; k++) {
+    if (bs[k] <= cx && cx <= bs[k + 1]) {
+      return raw[k].key === UNSET_GRADE.key ? '' : raw[k].label
+    }
+  }
+  return ''
+}
 
 /** 点击彩条：聚焦到该学段的全部节点 */
 function focusGrade(key: string) {
@@ -491,6 +539,27 @@ function zoomOutStep() {
 
 function fitAll() {
   void fitView({ padding: 0.12, duration: 250 })
+}
+
+/** 中心按钮：定位到「当前节点」——优先选中节点，其次离视口中心最近的节点，保证不落在空页面 */
+function focusCurrent() {
+  let target = selectedNode.value
+  if (!target && store.nodes.length) {
+    const v = readViewport()
+    const cx = (wrapSize.value.w / 2 - v.x) / v.zoom
+    const cy = (wrapSize.value.h / 2 - v.y) / v.zoom
+    target = [...store.nodes].sort((a, b) => {
+      const da = ((a.pos_x ?? 0) + nodeWidth / 2 - cx) ** 2 + ((a.pos_y ?? 0) + nodeHeight / 2 - cy) ** 2
+      const db = ((b.pos_x ?? 0) + nodeWidth / 2 - cx) ** 2 + ((b.pos_y ?? 0) + nodeHeight / 2 - cy) ** 2
+      return da - db
+    })[0]
+  }
+  if (!target) {
+    ElMessage.info('画布还没有知识点')
+    return
+  }
+  selectedNodeId.value = target.id
+  void fitView({ nodes: [target.id], duration: 300, padding: 0.4 })
 }
 
 // ---------- 键盘 ----------
@@ -656,8 +725,8 @@ function openAddDialog(mode: AddDialogState['mode'], base?: KNode | null) {
     parentId: parent?.id ?? null,
     parentTitle: parent?.title ?? '',
     title: '',
-    // 默认学段：子级/同级继承所属父节点的学段；顶层用上次选择的学段
-    stage: parent ? parent.stage ?? '' : lastUsedStage.value,
+    // 默认学段：子级/同级继承所属父节点的学段；顶层用「当前视口所在学段」，其次上次选择
+    stage: parent ? parent.stage ?? '' : currentViewportGrade() || lastUsedStage.value,
   }
 }
 
@@ -943,7 +1012,8 @@ function openStats() {
         @pan="panBy"
         @zoom-in="zoomInStep"
         @zoom-out="zoomOutStep"
-        @fit="fitAll"
+        @fit="focusCurrent"
+        @fit-all="fitAll"
       />
 
       <!-- 底部功能坞 -->
@@ -975,8 +1045,7 @@ function openStats() {
         <el-popover placement="top-end" :width="320" trigger="click">
           <div class="legend">
             <div class="legend__title">图例与帮助</div>
-            <div class="legend__row"><i class="ln hierarchy" />层级关系：父子从属，不可单独删除</div>
-            <div class="legend__row"><i class="ln prerequisite" />连线 = 学习先后：上层学完再学下层（多上可连多下）</div>
+            <div class="legend__row"><i class="ln hierarchy" />层级/学习先后：上层学完再学下层（多上可连多下）</div>
             <div class="legend__tip">
               建连线：hover 节点出现锚点，按住从一个节点拖到另一个节点<br />
               同层/同级之间不允许连线；方向必须自上而下<br />
@@ -996,7 +1065,7 @@ function openStats() {
       <el-drawer
         v-model="drawerOpen"
         :with-header="false"
-        size="560px"
+        size="640px"
         append-to-body
         @closed="onDrawerClosed"
       >
@@ -1248,15 +1317,6 @@ function openStats() {
 .ln.hierarchy {
   border-color: #9aa7bf;
   border-top-width: 1.5px;
-}
-
-.ln.prerequisite {
-  border-color: #e8590c;
-  border-top-style: dashed;
-}
-
-.ln.related {
-  border-color: #5b8def;
 }
 
 .legend__tip {

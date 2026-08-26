@@ -54,7 +54,7 @@ function stop(ev: Event) {
     <div class="kt-node__actions" @mousedown.stop @mouseup.stop @click.stop @dblclick.stop>
       <button title="增加下一级" @click.stop="emit('add-child')"><span class="a-ico">＋</span>下级</button>
       <button title="增加同级" @click.stop="emit('add-sibling')"><span class="a-ico">＋</span>同级</button>
-      <button class="danger" title="删除节点（含子树）" @click.stop="emit('remove')">🗑</button>
+      <button class="danger" title="删除节点（含子树）" @click.stop="emit('remove')">🗑<span class="a-txt">删除</span></button>
     </div>
   </div>
 </template>
@@ -202,6 +202,10 @@ function stop(ev: Event) {
 
 .a-ico {
   font-weight: 700;
+}
+
+.a-txt {
+  letter-spacing: 0.5px;
 }
 
 /* 四向锚点：hover 节点时浮现 */

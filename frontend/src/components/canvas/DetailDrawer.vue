@@ -75,7 +75,7 @@ async function saveContent(silent = false) {
     await store.updateNode(n.id, { content_md: content.value })
     dirty.value = false
     savedAt.value = new Date().toLocaleTimeString()
-    if (!silent) ElMessage.success('正文已保存')
+    void silent // 自动保存静默完成，左侧「已保存 HH:MM:SS」即是提示，不再弹消息
   } catch (e) {
     ElMessage.error(e instanceof Error ? e.message : String(e))
   }
@@ -305,7 +305,7 @@ defineExpose({ flushSave })
           v-if="editing"
           v-model="content"
           :toolbars="toolbars"
-          :style="{ height: '420px' }"
+          :style="{ height: '58vh' }"
           language="zh-CN"
           placeholder="用 Markdown 记录知识点，支持 LaTeX 公式：$x^2$ 或 $$\\int_a^b f(x)dx$$"
           @on-change="onContentChange"
@@ -477,7 +477,7 @@ defineExpose({ flushSave })
 .save-state {
   font-size: 11px;
   color: #98a2b3;
-  margin-left: auto;
+  flex: 1; /* 提示靠左，编辑按钮靠右 */
 }
 
 .count {

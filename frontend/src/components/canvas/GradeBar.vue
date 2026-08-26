@@ -51,7 +51,7 @@ function isActive(key: string) {
       @click="$emit('select', s.key)"
     >
       <span v-if="s.inView || isActive(s.key)" class="seg__label">{{ s.label }}</span>
-      <span v-if="(s.inView || isActive(s.key)) && s.count > 0" class="seg__count">{{ s.count }}</span>
+      <span v-if="s.inView || isActive(s.key)" class="seg__count">{{ s.count }}</span>
     </button>
   </div>
 </template>

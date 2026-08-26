@@ -9,6 +9,7 @@ export const STATUS_META: Record<
   learning: { label: '学习中', color: '#409eff', elType: 'primary' },
   partial: { label: '部分学会', color: '#e6a23c', elType: 'warning' },
   mastered: { label: '已学会', color: '#67c23a', elType: 'success' },
+  partial_forgotten: { label: '部分遗忘', color: '#f2935c', elType: 'warning' },
   forgotten: { label: '已遗忘', color: '#f56c6c', elType: 'danger' },
 }
 

@@ -41,7 +41,7 @@ watch(visible, (v) => {
 })
 void load()
 
-const statusOrder: NodeStatus[] = ['mastered', 'partial', 'learning', 'forgotten', 'not_started']
+const statusOrder: NodeStatus[] = ['mastered', 'partial', 'learning', 'partial_forgotten', 'forgotten', 'not_started']
 </script>
 
 <template>
@@ -63,7 +63,7 @@ const statusOrder: NodeStatus[] = ['mastered', 'partial', 'learning', 'forgotten
             <div class="card__num">{{ stats.total_nodes }}</div>
             <div class="card__label">知识点总数</div>
           </div>
-          <div class="card accent">
+          <div class="card">
             <div class="card__num">{{ stats.mastered_pct }}%</div>
             <div class="card__label">已学会占比</div>
           </div>
@@ -146,11 +146,6 @@ const statusOrder: NodeStatus[] = ['mastered', 'partial', 'learning', 'forgotten
   border-radius: 12px;
   padding: 16px;
   text-align: center;
-}
-
-.card.accent {
-  background: linear-gradient(135deg, #e8f5e9, #f1f8e9);
-  border-color: #b7dfc0;
 }
 
 .card__num {
