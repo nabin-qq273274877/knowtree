@@ -220,7 +220,7 @@ func extractJSON(s string) string {
 }
 
 // callJSON 让模型输出严格 JSON 并解析到 out。
-// 模型输出被 max_tokens 截断导致 JSON 不完整时，尝试自动补全右括号抢救。
+// 输出因服务端限制被截断导致 JSON 不完整时，尝试自动补全右括号抢救。
 func callJSON(c *gin.Context, cfg llm.Config, userPrompt string, out any) error {
 	messages := []llm.Message{
 		{Role: "system", Content: "你输出严格的 JSON，不要任何解释文字，不要 Markdown 代码围栏以外的内容。"},
@@ -342,10 +342,6 @@ func (s *Server) llmGenerateSubtree(c *gin.Context) {
 	}
 
 	var tree []draftNode
-	// 生成整棵子树的 JSON 输出较长，max_tokens 太小会被截断；这里抬高下限
-	if cfg.MaxTokens < 4096 {
-		cfg.MaxTokens = 4096
-	}
 	if err := callJSON(c, cfg, prompt, &tree); err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "生成失败：" + err.Error()})
 		return

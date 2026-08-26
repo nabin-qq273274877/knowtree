@@ -23,7 +23,6 @@ const (
 	KeyAPIKey     = "llm.api_key"
 	KeyModel      = "llm.model"
 	KeyTemperature = "llm.temperature"
-	KeyMaxTokens  = "llm.max_tokens"
 )
 
 type Config struct {
@@ -31,7 +30,6 @@ type Config struct {
 	APIKey      string  `json:"api_key"`
 	Model       string  `json:"model"`
 	Temperature float64 `json:"temperature"`
-	MaxTokens   int     `json:"max_tokens"`
 }
 
 // settingString 读取 settings 表里的字符串值：
@@ -54,7 +52,7 @@ func Load(db *gorm.DB) (Config, error) {
 	if err := db.Where("`key` LIKE ?", "llm.%").Find(&rows).Error; err != nil {
 		return Config{}, err
 	}
-	cfg := Config{Temperature: 0.7, MaxTokens: 2048}
+	cfg := Config{Temperature: 0.7}
 	for _, r := range rows {
 		switch r.Key {
 		case KeyBaseURL:
@@ -65,8 +63,6 @@ func Load(db *gorm.DB) (Config, error) {
 			cfg.Model = settingString(r.ValueJSON)
 		case KeyTemperature:
 			fmt.Sscanf(r.ValueJSON, "%f", &cfg.Temperature)
-		case KeyMaxTokens:
-			fmt.Sscanf(r.ValueJSON, "%d", &cfg.MaxTokens)
 		}
 	}
 	if err := cfg.Validate(); err != nil {
@@ -96,7 +92,6 @@ type chatRequest struct {
 	Model       string    `json:"model"`
 	Messages    []Message `json:"messages"`
 	Temperature float64   `json:"temperature"`
-	MaxTokens   int       `json:"max_tokens,omitempty"`
 	Stream      bool      `json:"stream"`
 }
 
@@ -143,7 +138,7 @@ func (c Config) doRequest(ctx context.Context, body any) (*http.Response, error)
 func (c Config) Complete(ctx context.Context, messages []Message) (string, error) {
 	resp, err := c.doRequest(ctx, chatRequest{
 		Model: c.Model, Messages: messages,
-		Temperature: c.Temperature, MaxTokens: c.MaxTokens, Stream: false,
+		Temperature: c.Temperature, Stream: false,
 	})
 	if err != nil {
 		return "", err
@@ -167,7 +162,7 @@ func (c Config) Complete(ctx context.Context, messages []Message) (string, error
 func (c Config) Stream(ctx context.Context, messages []Message, onDelta func(string)) error {
 	resp, err := c.doRequest(ctx, chatRequest{
 		Model: c.Model, Messages: messages,
-		Temperature: c.Temperature, MaxTokens: c.MaxTokens, Stream: true,
+		Temperature: c.Temperature, Stream: true,
 	})
 	if err != nil {
 		return err

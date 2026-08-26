@@ -29,8 +29,8 @@ mkdir -p "$root/bin"
 os="$(uname -s)"
 arch="$(uname -m)"
 case "$os" in
-  Darwin) out="knowtree-desktop-macos-$arch" ;;
-  Linux)  out="knowtree-desktop-linux-$arch" ;;
+  Darwin) out="knowtree-desktop-$version-macos-$arch" ;;
+  Linux)  out="knowtree-desktop-$version-linux-$arch" ;;
   *) echo "unsupported os: $os"; exit 1 ;;
 esac
 
@@ -39,4 +39,4 @@ go build -tags "desktop,production" -trimpath \
   -o "$root/bin/$out" ./cmd/knowtree-desktop
 
 size=$(du -h "$root/bin/$out" | cut -f1 | tr -d '\n')
-echo "==> 完成: bin/$out ($size, v$version)"
+echo "==> 完成: bin/$out ($size, $version)"

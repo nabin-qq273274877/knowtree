@@ -16,7 +16,7 @@
 
 ```powershell
 # Windows
-.\scripts\build-desktop.ps1     # 产物 bin/knowtree-desktop.exe（无控制台，带图标）
+.\scripts\build-desktop.ps1     # 产物 bin/knowtree-desktop-v<版本>.exe（无控制台，带图标，文件名带版本号）
 ```
 
 ```bash

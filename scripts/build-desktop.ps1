@@ -1,5 +1,5 @@
 # knowtree 桌面客户端构建脚本（Windows）
-# 产物：bin\knowtree-desktop.exe（Wails 原生窗口，双击即用）
+# 产物：bin\knowtree-desktop-v<版本>.exe（Wails 原生窗口，双击即用，文件名带版本号）
 # 用法：pwsh scripts/build-desktop.ps1 [-FrontendOnly]
 param(
     [switch]$FrontendOnly
@@ -35,11 +35,15 @@ $ldflags = "-s -w -H windowsgui -X main.version=$version -X main.buildTime=$buil
 New-Item -ItemType Directory -Force -Path "$root\bin" | Out-Null
 
 $env:CGO_ENABLED = '0'
+$outName = "knowtree-desktop-$version.exe"
+# 清掉 bin 里旧版本的产物，只保留最新
+Get-ChildItem "$root\bin" -Filter 'knowtree-desktop*.exe' -ErrorAction SilentlyContinue |
+    Remove-Item -Force -ErrorAction SilentlyContinue
 # Wails 必须带 desktop,production 构建标签，否则运行时会弹「missing build tags」错误框
-go build -tags "desktop,production" -trimpath -ldflags $ldflags -o "$root\bin\knowtree-desktop.exe" ./cmd/knowtree-desktop
+go build -tags "desktop,production" -trimpath -ldflags $ldflags -o "$root\bin\$outName" ./cmd/knowtree-desktop
 if ($LASTEXITCODE -ne 0) { exit 1 }
 
-$size = [math]::Round((Get-Item "$root\bin\knowtree-desktop.exe").Length / 1MB, 1)
-Write-Host "==> 完成: bin\knowtree-desktop.exe (${size} MB, $version)" -ForegroundColor Green
+$size = [math]::Round((Get-Item "$root\bin\$outName").Length / 1MB, 1)
+Write-Host "==> 完成: bin\$outName (${size} MB, $version)" -ForegroundColor Green
 Write-Host '    双击运行（需要系统自带的 WebView2 运行时，Win10/11 一般已内置）'
 Write-Host '    数据目录：exe 同级 data\；日志：data\knowtree-desktop.log'

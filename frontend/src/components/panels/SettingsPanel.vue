@@ -249,7 +249,6 @@ const llmForm = ref({
   api_key: '',
   model: 'deepseek-chat',
   temperature: 0.7,
-  max_tokens: 2048,
 })
 const llmLoading = ref(false)
 const llmSaving = ref(false)
@@ -267,7 +266,6 @@ async function loadLLM() {
       api_key: g('llm.api_key', ''),
       model: g('llm.model', 'deepseek-chat'),
       temperature: gn('llm.temperature', 0.7),
-      max_tokens: gn('llm.max_tokens', 2048),
     }
     detectProvider(llmForm.value.base_url)
   } finally {
@@ -284,7 +282,6 @@ function llmSettingsPayload() {
     'llm.api_key': llmForm.value.api_key.trim(),
     'llm.model': llmForm.value.model.trim(),
     'llm.temperature': Number(llmForm.value.temperature),
-    'llm.max_tokens': Math.round(Number(llmForm.value.max_tokens)),
   }
 }
 
@@ -367,9 +364,6 @@ async function testLLM() {
           </el-form-item>
           <el-form-item label="Temperature">
             <el-slider v-model="llmForm.temperature" :min="0" :max="2" :step="0.1" style="width: 260px" show-input />
-          </el-form-item>
-          <el-form-item label="Max Tokens">
-            <el-input-number v-model="llmForm.max_tokens" :min="128" :max="32768" :step="128" />
           </el-form-item>
           <el-form-item>
             <el-button type="primary" :loading="llmSaving" @click="saveLLM">保存设置</el-button>

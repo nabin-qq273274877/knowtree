@@ -64,7 +64,7 @@ jobs:
           rm -rf web/dist && mkdir -p web/dist
           cp -r frontend/dist/* web/dist/
           LDFLAGS="-s -w -X main.version=${VERSION} -X main.buildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ) -X main.commit=${GITHUB_SHA::8}"
-          NAME="knowtree-desktop-${{ matrix.name }}${{ matrix.ext }}"
+          NAME="knowtree-desktop-${VERSION}-${{ matrix.name }}${{ matrix.ext }}"
           if [ "${{ runner.os }}" = "Windows" ]; then
             CGO_ENABLED=0 go build -tags "desktop,production" -trimpath \
               -ldflags "$LDFLAGS -H windowsgui" -o "dist/$NAME" ./cmd/knowtree-desktop
