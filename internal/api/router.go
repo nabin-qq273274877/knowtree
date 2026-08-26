@@ -17,7 +17,7 @@ const fallbackHTML = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF
 <body style="font-family:system-ui;padding:40px;line-height:1.8">
 <h2>knowtree 前端尚未构建</h2>
 <p>当前二进制内含占位页面。请运行 <code>scripts/build.ps1</code>（或 build.sh）完成前端构建与编译。</p>
-<p>开发模式请使用 Vite Dev Server（http://localhost:5173），API 已代理到本服务。REST API 可用：<code>GET /api/health</code></p>
+<p>开发模式请使用 Vite Dev Server（http://localhost:6006），API 已代理到本服务。REST API 可用：<code>GET /api/health</code></p>
 </body></html>`
 
 type Server struct {

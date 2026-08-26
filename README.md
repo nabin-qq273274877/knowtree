@@ -43,7 +43,7 @@ docker compose up -d         # 数据挂载在 ./data
 go run ./cmd/knowtree
 
 # 终端 2：Vite 前端（热更新，API 自动代理到 3000 端口）
-cd frontend && pnpm install && pnpm dev   # http://localhost:5173
+cd frontend && pnpm install && pnpm dev   # http://localhost:6006
 ```
 
 ## 目录结构
