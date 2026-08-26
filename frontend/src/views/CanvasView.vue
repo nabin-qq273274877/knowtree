@@ -430,10 +430,8 @@ interface StageBucket {
   end: number
 }
 
-// 学段显示边界（世界坐标）：相邻学段按内容外沿取中点，空学段给固定槽位，
-// 两端留默认余量——拖动画布时彩条随内容自然过渡，空学段数量为 0 也照常显示。
-const LEADING_MARGIN = 420
-
+// 学段显示边界（世界坐标）：相邻学段按内容外沿取中点，空学段给固定槽位；
+// 最左/最右学段的边界无限延伸，拖到尽头也不会收起。
 const gradeSegments = computed<GradeSegment[]>(() => {
   const r = visibleRect.value
 
@@ -467,12 +465,13 @@ const gradeSegments = computed<GradeSegment[]>(() => {
     }
   }
 
-  // 相邻学段边界 = 前者右沿与后者左沿的中点
-  const bounds: number[] = [items[0].start - LEADING_MARGIN]
+  // 相邻学段边界 = 前者右沿与后者左沿的中点；
+  // 最左/最右学段的边界向外无限延伸——拖到画布尽头时端点学段始终保持点亮
+  const bounds: number[] = [Number.NEGATIVE_INFINITY]
   for (let k = 1; k < items.length; k++) {
     bounds.push((items[k - 1].end + items[k].start) / 2)
   }
-  bounds.push(items[items.length - 1].end + LEADING_MARGIN)
+  bounds.push(Number.POSITIVE_INFINITY)
 
   return items.map((it, k) => ({
     key: it.key,
@@ -500,9 +499,9 @@ function currentViewportGrade(): string {
     }
     return { key: g.key, label: g.label, start, end }
   })
-  const bs: number[] = [raw[0].start - LEADING_MARGIN]
+  const bs: number[] = [Number.NEGATIVE_INFINITY]
   for (let k = 1; k < raw.length; k++) bs.push((raw[k - 1].end + raw[k].start) / 2)
-  bs.push(raw[raw.length - 1].end + LEADING_MARGIN)
+  bs.push(Number.POSITIVE_INFINITY)
   for (let k = 0; k < raw.length; k++) {
     if (bs[k] <= cx && cx <= bs[k + 1]) {
       return raw[k].key === UNSET_GRADE.key ? '' : raw[k].label
@@ -863,6 +862,7 @@ interface DraftTreeNode {
 const subOpen = ref(false)
 const subTopic = ref('')
 const subParent = ref<string | null>(null)
+const subStage = ref('')
 const subCount = ref(8)
 const subGenerating = ref(false)
 const subTree = ref<DraftTreeNode[]>([])
@@ -872,6 +872,9 @@ function openSubDialog() {
   subTopic.value = ''
   subTree.value = []
   subParent.value = selectedNodeId.value
+  // 默认学段：挂载点的学段；挂在根时用当前视口所在学段
+  const parent = selectedNodeId.value ? store.byId.get(selectedNodeId.value) : undefined
+  subStage.value = parent?.stage ?? currentViewportGrade() ?? ''
   subOpen.value = true
 }
 
@@ -911,12 +914,13 @@ async function insertDraftTree(list: DraftTreeNode[], parentId: string | null, s
 async function confirmInsertSubtree() {
   inserting.value = true
   try {
-    // 继承挂载点的学段，保证新子树落进对应学段分区
+    // 学段优先级：对话框所选 > 挂载点学段；整棵子树统一使用，保证落进对应分区
     const parentStage = subParent.value ? store.byId.get(subParent.value)?.stage ?? null : null
-    const total = await insertDraftTree(subTree.value, subParent.value, parentStage)
+    const stage = subStage.value || parentStage
+    const total = await insertDraftTree(subTree.value, subParent.value, stage)
     subOpen.value = false
     await autoLayout(true)
-    ElMessage.success(`已插入 ${total} 个知识点`)
+    ElMessage.success(`已插入 ${total} 个知识点${stage ? `（${stage}）` : '（未知领域）'}`)
   } catch (e) {
     ElMessage.error(e instanceof Error ? e.message : String(e))
   } finally {
@@ -1094,6 +1098,10 @@ function openStats() {
             filterable
             placeholder="挂载到（留空=根）"
           />
+          <el-select v-model="subStage" clearable placeholder="学段（默认跟随挂载点）" style="width: 100%">
+            <el-option value="" label="未知领域（暂不归类）" />
+            <el-option v-for="g in GRADES" :key="g.key" :value="g.label" :label="g.label" />
+          </el-select>
           <div style="display: flex; align-items: center; gap: 10px">
             <span class="dim">节点数</span>
             <el-input-number v-model="subCount" :min="3" :max="30" />

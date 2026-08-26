@@ -266,8 +266,10 @@ async function loadLLM() {
 void loadLLM()
 
 function llmSettingsPayload() {
+  // 清洗 base_url：去引号/反引号/空白/多余斜杠，避免后端拼 URL 出错
+  const cleanBase = llmForm.value.base_url.trim().replace(/^["'`]+|["'`]+$/g, '').replace(/\/+$/, '')
   return {
-    'llm.base_url': llmForm.value.base_url.trim(),
+    'llm.base_url': cleanBase,
     'llm.api_key': llmForm.value.api_key.trim(),
     'llm.model': llmForm.value.model.trim(),
     'llm.temperature': Number(llmForm.value.temperature),
@@ -283,6 +285,7 @@ async function saveLLM() {
   llmSaving.value = true
   try {
     await api.put('/api/settings', llmSettingsPayload())
+    llmForm.value.base_url = llmForm.value.base_url.trim().replace(/^["'`]+|["'`]+$/g, '').replace(/\/+$/, '')
     ElMessage.success('LLM 配置已保存')
   } catch (e) {
     ElMessage.error(e instanceof Error ? e.message : String(e))

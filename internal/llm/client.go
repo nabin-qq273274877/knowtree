@@ -34,6 +34,20 @@ type Config struct {
 	MaxTokens   int     `json:"max_tokens"`
 }
 
+// settingString 读取 settings 表里的字符串值：
+// 值以 JSON 形式存储（json.Marshal），优先正规解码；
+// 对历史脏数据（粘贴进来的引号/转义）做兜底剥离。
+func settingString(raw string) string {
+	var s string
+	if err := json.Unmarshal([]byte(raw), &s); err == nil {
+		s = strings.TrimSpace(s)
+	} else {
+		s = strings.TrimSpace(raw)
+	}
+	// 再兜底剥一层：用户可能把引号粘贴进值里
+	return strings.Trim(s, "\\\"'`")
+}
+
 // Load 从 settings 表读取 LLM 配置；未配置返回 ErrNotConfigured。
 func Load(db *gorm.DB) (Config, error) {
 	var rows []models.Setting
@@ -44,11 +58,11 @@ func Load(db *gorm.DB) (Config, error) {
 	for _, r := range rows {
 		switch r.Key {
 		case KeyBaseURL:
-			cfg.BaseURL = strings.TrimSpace(r.ValueJSON)
+			cfg.BaseURL = settingString(r.ValueJSON)
 		case KeyAPIKey:
-			cfg.APIKey = strings.Trim(r.ValueJSON, `"`)
+			cfg.APIKey = settingString(r.ValueJSON)
 		case KeyModel:
-			cfg.Model = strings.Trim(r.ValueJSON, `"`)
+			cfg.Model = settingString(r.ValueJSON)
 		case KeyTemperature:
 			fmt.Sscanf(r.ValueJSON, "%f", &cfg.Temperature)
 		case KeyMaxTokens:
@@ -67,6 +81,8 @@ func (c Config) Validate() error {
 	if c.BaseURL == "" || c.Model == "" {
 		return ErrNotConfigured
 	}
+	// 兜底清洗：引号/空白/多余斜杠
+	c.BaseURL = strings.Trim(strings.TrimSpace(c.BaseURL), "\"'`")
 	c.BaseURL = strings.TrimRight(c.BaseURL, "/")
 	return nil
 }
