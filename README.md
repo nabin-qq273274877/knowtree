@@ -1,3 +1,5 @@
+<p align="center"><b>简体中文</b> · <a href="README.en.md">English</a></p>
+
 # 知树 · KnowTree
 
 单人使用的知识点管理**桌面应用**：覆盖学前到博士的知识点树形管理、学习先后连线、学习状态追踪、批注心得，以及 LLM 辅助讲解/出题/批改。
