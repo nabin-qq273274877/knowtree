@@ -3,7 +3,7 @@
 单人使用的知识点管理系统：覆盖幼儿园到大学的知识点树形管理、任意节点自由关联、学习状态追踪、批注心得，以及 LLM 辅助讲解/出题/批改。
 
 - **后端** Go (Gin + GORM + modernc SQLite) · **前端** Vue 3 + Element Plus（知识画布用 Vue Flow 定制）
-- **部署** 单文件二进制（go:embed 内嵌前端，免安装直跑），Docker 为可选备选
+- **部署** 单文件二进制（go:embed 内嵌前端，免安装直跑），另有 **桌面客户端**（Wails 原生窗口），Docker 为可选备选
 - **数据** 本地 SQLite 单文件（WAL），导入导出 JSON 兜底，数据完全自主
 
 ## 文档
@@ -12,7 +12,18 @@
 
 ## 快速开始
 
-### 方式一：单文件二进制（推荐）
+### 方式一：桌面客户端（推荐，双击即用）
+
+```powershell
+.\scripts\build-desktop.ps1   # 构建前端 + 编译 bin/knowtree-desktop.exe
+.\bin\knowtree-desktop.exe    # 双击打开原生窗口；关窗即退出
+```
+
+- 基于 Wails v2（系统自带 WebView2，Win10/11 一般免安装），单文件、无控制台窗口
+- 数据目录：exe 同级 `data\`；日志：`data\knowtree-desktop.log`
+- 内置单实例锁：重复双击会聚焦已开窗口
+
+### 方式二：单文件二进制（浏览器访问）
 
 ```powershell
 # Windows（PowerShell）
@@ -30,7 +41,7 @@
 
 升级 = 替换可执行文件，数据目录原样保留。
 
-### 方式二：Docker（可选）
+### 方式三：Docker（可选）
 
 ```bash
 docker compose up -d         # 数据挂载在 ./data
@@ -44,12 +55,16 @@ go run ./cmd/knowtree
 
 # 终端 2：Vite 前端（热更新，API 自动代理到 6006 端口）
 cd frontend && pnpm install && pnpm dev   # http://localhost:6006
+
+# 桌面客户端开发调试（带控制台日志）
+go run ./cmd/knowtree-desktop -data .\data
 ```
 
 ## 目录结构
 
 ```
-├─ cmd/knowtree/        # 入口
+├─ cmd/knowtree/         # 服务端入口（浏览器访问）
+├─ cmd/knowtree-desktop/ # 桌面客户端入口（Wails 原生窗口）
 ├─ internal/
 │  ├─ api/              # REST handlers + DTO（nodes/edges/settings/search/version）
 │  ├─ config/           # flag/env 配置
