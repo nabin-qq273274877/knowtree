@@ -1,4 +1,4 @@
-<p align="center"><a href="README.md">简体中文</a> · <b>English</b></p>
+<p align="center"><a href="README.md">简体中文</a> · <b>English</b> · <a href="LICENSE">MIT License</a></p>
 
 # KnowTree · 知树
 
