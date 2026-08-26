@@ -7,7 +7,7 @@ services:
     image: nabin-qq273274877/knowtree:latest
     container_name: knowtree
     ports:
-      - "3000:3000"
+      - "6006:6006"
     volumes:
       - ./data:/app/data
     restart: unless-stopped

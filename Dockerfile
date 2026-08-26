@@ -28,8 +28,8 @@ RUN apk add --no-cache ca-certificates tzdata
 COPY --from=backend /out/knowtree /usr/local/bin/knowtree
 
 ENV KNOWTREE_DATA_DIR=/app/data \
-    KNOWTREE_ADDR=0.0.0.0:3000
+    KNOWTREE_ADDR=0.0.0.0:6006
 VOLUME /app/data
-EXPOSE 3000
+EXPOSE 6006
 
 ENTRYPOINT ["knowtree"]

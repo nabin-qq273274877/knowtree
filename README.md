@@ -17,13 +17,13 @@
 ```powershell
 # Windows（PowerShell）
 .\scripts\build.ps1          # 构建前端 + 编译 bin/knowtree.exe
-.\bin\knowtree.exe           # 双击亦可；默认 http://127.0.0.1:3000
+.\bin\knowtree.exe           # 双击亦可；默认 http://127.0.0.1:6006
 ```
 
 ```bash
 # Linux / macOS
 ./scripts/build.sh
-./bin/knowtree-*             # 默认 http://127.0.0.1:3000
+./bin/knowtree-*             # 默认 http://127.0.0.1:6006
 ```
 
 首次启动自动建库建表。数据目录默认 `./data`（可用 `-data` 或环境变量 `KNOWTREE_DATA_DIR` 指定）；监听地址可用 `-addr` / `KNOWTREE_ADDR` 修改。
@@ -42,7 +42,7 @@ docker compose up -d         # 数据挂载在 ./data
 # 终端 1：Go 后端（仅 API）
 go run ./cmd/knowtree
 
-# 终端 2：Vite 前端（热更新，API 自动代理到 3000 端口）
+# 终端 2：Vite 前端（热更新，API 自动代理到 6006 端口）
 cd frontend && pnpm install && pnpm dev   # http://localhost:6006
 ```
 
