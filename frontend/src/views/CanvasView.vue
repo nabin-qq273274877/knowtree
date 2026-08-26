@@ -858,6 +858,49 @@ async function confirmAddNode() {
   }
 }
 
+// ---------- 编辑节点（名称 + 学段） ----------
+const editDialog = ref<{ open: boolean; id: string | null; title: string; stage: string; origStage: string }>({
+  open: false,
+  id: null,
+  title: '',
+  stage: '',
+  origStage: '',
+})
+
+function openEditDialog(node: KNode) {
+  editDialog.value = {
+    open: true,
+    id: node.id,
+    title: node.title,
+    stage: node.stage ?? '',
+    origStage: node.stage ?? '',
+  }
+}
+
+async function confirmEditNode() {
+  const d = editDialog.value
+  const title = d.title.trim()
+  if (!d.id || !title) {
+    ElMessage.warning('标题不能为空')
+    return
+  }
+  try {
+    await store.updateNode(d.id, { title, stage: d.stage || null })
+    // 若改了学段，把节点水平方向落回新学段分区（垂直位置不变）
+    if ((d.stage || null) !== d.origStage) {
+      const cur = store.byId.get(d.id)
+      if (cur) {
+        const p = placeInGradeCol(d.stage || null, { x: cur.pos_x ?? 0, y: cur.pos_y ?? 0 })
+        await store.updateNode(d.id, { pos_x: p.x, pos_y: p.y })
+      }
+    }
+    editDialog.value.open = false
+    ElMessage.success('已保存')
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : String(e))
+  }
+}
+
 // ---------- 撤销 / 重做（功能坞按钮） ----------
 async function doUndo() {
   if (!store.canUndo()) {
@@ -994,6 +1037,7 @@ watch(drawerOpen, (v) => {
             :data="ktProps.data"
             @add-child="openAddDialog('child', ktProps.data.node)"
             @add-sibling="openAddDialog('sibling', ktProps.data.node)"
+            @edit="openEditDialog(ktProps.data.node)"
             @remove="removeNode(ktProps.data.node.id)"
           />
         </template>
@@ -1096,6 +1140,31 @@ watch(drawerOpen, (v) => {
         <template #footer>
           <el-button @click="addDialog.open = false">取消</el-button>
           <el-button type="primary" @click="confirmAddNode">创建</el-button>
+        </template>
+      </el-dialog>
+
+      <!-- 编辑节点对话框：标题 + 学段 -->
+      <el-dialog v-model="editDialog.open" title="✎ 编辑知识点" width="420px" append-to-body>
+        <el-form label-width="72px" @submit.prevent>
+          <el-form-item label="标题">
+            <el-input
+              v-model="editDialog.title"
+              placeholder="知识点标题"
+              maxlength="60"
+              autofocus
+              @keyup.enter="confirmEditNode"
+            />
+          </el-form-item>
+          <el-form-item label="学段">
+            <el-select v-model="editDialog.stage" clearable placeholder="选择所属学段" style="width: 100%">
+              <el-option value="" label="未知领域（暂不归类）" />
+              <el-option v-for="g in GRADES" :key="g.key" :value="g.label" :label="g.label" />
+            </el-select>
+          </el-form-item>
+        </el-form>
+        <template #footer>
+          <el-button @click="editDialog.open = false">取消</el-button>
+          <el-button type="primary" @click="confirmEditNode">保存</el-button>
         </template>
       </el-dialog>
 

@@ -17,6 +17,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'add-child'): void
   (e: 'add-sibling'): void
+  (e: 'edit'): void
   (e: 'remove'): void
 }>()
 
@@ -54,6 +55,7 @@ function stop(ev: Event) {
     <div class="kt-node__actions" @mousedown.stop @mouseup.stop @click.stop @dblclick.stop>
       <button title="增加下一级" @click.stop="emit('add-child')"><span class="a-ico">＋</span>下级</button>
       <button title="增加同级" @click.stop="emit('add-sibling')"><span class="a-ico">＋</span>同级</button>
+      <button title="编辑名称与学段" @click.stop="emit('edit')"><span class="a-ico">✎</span>编辑</button>
       <button class="danger" title="删除节点（含子树）" @click.stop="emit('remove')">🗑<span class="a-txt">删除</span></button>
     </div>
   </div>
