@@ -105,15 +105,15 @@ jobs:
           VERSION: ${{ github.ref_name }}
         run: |
           NAME="knowtree-desktop-${VERSION}-${{ matrix.name }}"
-          APP="dist/知树-KnowTree.app/Contents/MacOS"
-          mkdir -p "$APP" "dist/知树-KnowTree.app/Contents/Resources"
+          APP="dist/${NAME}.app/Contents/MacOS"
+          mkdir -p "$APP" "dist/${NAME}.app/Contents/Resources"
           cp "dist/$NAME" "$APP/KnowTree"
           chmod +x "$APP/KnowTree"
-          cat > "dist/知树-KnowTree.app/Contents/Info.plist" <<PLIST
+          cat > "dist/${NAME}.app/Contents/Info.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0"><dict>
-            <key>CFBundleName</key><string>知树·KnowTree</string>
+            <key>CFBundleName</key><string>knowtree-desktop</string>
             <key>CFBundleDisplayName</key><string>知树·KnowTree</string>
             <key>CFBundleIdentifier</key><string>cn.knowtree.desktop</string>
             <key>CFBundleExecutable</key><string>KnowTree</string>
@@ -124,7 +124,7 @@ jobs:
           </dict></plist>
           PLIST
           # 图标：有 icns 则拷入；没有也不影响运行（后续可补）
-          if [ -f "build/appicon.icns" ]; then cp "build/appicon.icns" "dist/知树-KnowTree.app/Contents/Resources/icon.icns"; fi
+          if [ -f "build/appicon.icns" ]; then cp "build/appicon.icns" "dist/${NAME}.app/Contents/Resources/icon.icns"; fi
           # 去掉裸二进制，只发 .app
           rm "dist/$NAME"
 
