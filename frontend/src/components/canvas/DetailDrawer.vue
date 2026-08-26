@@ -251,7 +251,7 @@ async function setStage(stage: string) {
   if (!node.value) return
   try {
     await store.updateNode(node.value.id, { stage: stage || null })
-    ElMessage.success(stage ? `已归入「${stage}」学段` : '已清除学段（未设置）')
+    ElMessage.success(stage ? `已归入「${stage}」学段` : '已归入「未知领域」')
   } catch (e) {
     ElMessage.error(e instanceof Error ? e.message : String(e))
   }
@@ -284,7 +284,7 @@ defineExpose({ flushSave })
           title="所属学段：决定画布分区与顶部彩条颜色"
           @change="(v: string) => setStage(v)"
         >
-          <el-option value="" label="未设置学段" />
+          <el-option value="" label="未知领域" />
           <el-option v-for="g in GRADES" :key="g.key" :value="g.label" :label="g.label" />
         </el-select>
         <el-select :model-value="node.status" size="small" style="width: 130px" @change="(v: NodeStatus) => setStatus(v)">

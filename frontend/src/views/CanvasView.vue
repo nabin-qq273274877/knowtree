@@ -46,8 +46,14 @@ const { fitView, addNodes, zoomIn, zoomOut, setViewport, viewport } = useVueFlow
 
 onMounted(async () => {
   await store.loadAll()
-  // 首次出现无坐标的节点时，自动排布一次并持久化
-  if (store.nodes.some((n) => n.pos_x == null || n.pos_y == null)) {
+  // 兼容旧数据：存在无坐标、或落在自己学段分区之外的节点时，
+  // 先按学段分区静默重排一次（否则拖拽约束会立刻把节点拽回去）
+  const outOfZone = store.nodes.some((n) => {
+    const col = gradeColumnRange(gradeColumnIndex(matchGrade(n.stage)?.key))
+    const x = n.pos_x ?? 0
+    return x < col.x0 + COL_PAD || x + nodeWidth > col.x1 - COL_PAD
+  })
+  if (store.nodes.some((n) => n.pos_x == null || n.pos_y == null) || outOfZone) {
     await nextTick()
     void autoLayout(true)
   } else {
@@ -102,6 +108,8 @@ const flowEdges = computed(() => {
       selectable: false,
     }))
   const rel = store.edges.map((e) => {
+    const anch = edgeAnchors.value.get(e.id)
+    const data = anch ? { sh: anch.s, th: anch.t } : undefined
     if (e.relation === 'prerequisite') {
       return {
         id: e.id,
@@ -111,6 +119,7 @@ const flowEdges = computed(() => {
         label: RELATION_LABEL.prerequisite,
         markerEnd: MarkerType.ArrowClosed,
         style: { ...LINE_STYLE.prerequisite },
+        data,
       }
     }
     return {
@@ -119,6 +128,7 @@ const flowEdges = computed(() => {
       target: e.target_id,
       type: 'floating',
       style: { ...LINE_STYLE.related },
+      data,
     }
   })
   return [...hier, ...rel]
@@ -132,30 +142,6 @@ const connectMode = ref(false)
 watch(connectMode, (on) => {
   ElMessage.info(on ? '连线模式：依次点击两个节点建立连线（Esc 退出）' : '已退出连线模式')
 })
-
-async function createEdgeBetween(sourceId: string, targetId: string) {
-  try {
-    const e = await store.createEdge(sourceId, targetId, relationType.value)
-    pushUndo({
-      label: '连线',
-      undo: async () => {
-        await store.deleteEdgeRaw(e.id)
-      },
-      redo: async () => {
-        await store.createEdgeRaw({ id: e.id, source_id: e.source_id, target_id: e.target_id, relation: e.relation })
-      },
-    })
-    ElMessage.success(`已连接（${RELATION_LABEL[relationType.value]}）`)
-  } catch (e) {
-    ElMessage.warning(e instanceof Error ? e.message : String(e))
-  }
-}
-
-function onConnect(conn: Connection) {
-  if (conn.source && conn.target && conn.source !== conn.target) {
-    void createEdgeBetween(conn.source, conn.target)
-  }
-}
 
 // 点选连线：仅在「连线模式」开启时生效；普通点击 = 选中并打开详情
 function onNodeClick({ node }: NodeMouseEvent) {
@@ -194,6 +180,17 @@ function onEdgeClick({ edge }: EdgeMouseEvent) {
   selectedEdgeId.value = edge.id.startsWith('h-') ? null : edge.id
 }
 
+// 双击连线直接删除（层级线除外）
+function onEdgeDblClick({ edge }: EdgeMouseEvent) {
+  clearPending()
+  selectedNodeId.value = null
+  if (edge.id.startsWith('h-')) {
+    ElMessage.info('层级线由父子关系生成，删除子节点即可移除')
+    return
+  }
+  void removeEdge(edge.id)
+}
+
 function clearPending() {
   pendingSourceId.value = null
 }
@@ -222,12 +219,13 @@ function onDragStop(e: { node: GraphNode }) {
   const limited = clampToGradeCol({ ...n, pos_x: dropped.x, pos_y: dropped.y })
   const x = limited.x
   const y = limited.y
-  if (x !== dropped.x || y !== dropped.y) {
+  // 只有被明显拽回（>30px）才提示，轻微贴边校正不打扰
+  if (Math.abs(x - dropped.x) > 30 || Math.abs(y - dropped.y) > 30) {
     const now = Date.now()
-    if (now - lastClampWarnAt > 2000) {
+    if (now - lastClampWarnAt > 2500) {
       lastClampWarnAt = now
       const g = matchGrade(n.stage)
-      ElMessage.info(`知识点不能拖出「${g?.label ?? '未设置'}」学段分区`)
+      ElMessage.info(`知识点不能拖出「${g?.label ?? UNSET_GRADE.label}」学段分区`)
     }
   }
   if (n.pos_x !== x || n.pos_y !== y) {
@@ -393,6 +391,49 @@ const zoomPercent = computed(() => {
   return Math.round(readViewport().zoom * 100)
 })
 
+// 提供给节点内 hover 操作条做反向缩放补偿（保持屏幕尺寸恒定）
+const vpZoom = computed(() => {
+  void vpTick.value
+  return readViewport().zoom
+})
+
+// 连线创建时用户拖拽的把手方向（会话内记忆，edgeId → {s,t}，t/r/b/l）
+const edgeAnchors = ref(new Map<string, { s?: string; t?: string }>())
+
+async function createEdgeBetween(
+  sourceId: string,
+  targetId: string,
+  handles?: { s?: string | null; t?: string | null },
+) {
+  try {
+    const e = await store.createEdge(sourceId, targetId, relationType.value)
+    if (handles?.s || handles?.t) {
+      edgeAnchors.value.set(e.id, { s: handles.s ?? undefined, t: handles.t ?? undefined })
+    }
+    pushUndo({
+      label: '连线',
+      undo: async () => {
+        await store.deleteEdgeRaw(e.id)
+      },
+      redo: async () => {
+        await store.createEdgeRaw({ id: e.id, source_id: e.source_id, target_id: e.target_id, relation: e.relation })
+      },
+    })
+    ElMessage.success(`已连接（${RELATION_LABEL[relationType.value]}）`)
+  } catch (e) {
+    ElMessage.warning(e instanceof Error ? e.message : String(e))
+  }
+}
+
+function onConnect(conn: Connection) {
+  if (conn.source && conn.target && conn.source !== conn.target) {
+    void createEdgeBetween(conn.source, conn.target, {
+      s: conn.sourceHandle ?? null,
+      t: conn.targetHandle ?? null,
+    })
+  }
+}
+
 // 当前视口覆盖的世界坐标范围（外扩 40px 让彩条提前一点亮起）
 const visibleRect = computed(() => {
   void vpTick.value
@@ -556,6 +597,37 @@ function placeInGradeCol(stage: string | null, prefer?: { x: number; y: number }
   return clampToGradeCol(fake)
 }
 
+const SLOT_GAP_X = 70
+const SLOT_GAP_Y = 22
+
+function overlapsAny(x: number, y: number, ignoreId?: string): boolean {
+  for (const n of store.nodes) {
+    if (n.id === ignoreId) continue
+    const nx = n.pos_x ?? 0
+    const ny = n.pos_y ?? 0
+    if (x < nx + nodeWidth + 8 && x + nodeWidth + 8 > nx && y < ny + nodeHeight + 8 && y + nodeHeight + 8 > ny) {
+      return true
+    }
+  }
+  return false
+}
+
+/**
+ * 找一个不与现有节点重叠的空位（脑图式排布）：
+ * 先从期望位置向下逐行扫描，再向上扫描，都满则继续下探。
+ */
+function findFreeSpot(stage: string | null, wantX: number, wantY: number): { x: number; y: number } {
+  const base = placeInGradeCol(stage, { x: wantX, y: wantY })
+  const stepY = nodeHeight + SLOT_GAP_Y
+  for (let k = 0; k <= 24; k++) {
+    for (const dir of k === 0 ? [1] : [1, -1]) {
+      const cand = placeInGradeCol(stage, { x: base.x, y: base.y + dir * k * stepY })
+      if (!overlapsAny(cand.x, cand.y)) return cand
+    }
+  }
+  return base
+}
+
 async function createWithPosition(
   title: string,
   parentId: string | null,
@@ -603,14 +675,15 @@ async function addNodeManual() {
     // 新节点继承父节点的学段；顶层节点默认无学段（可在详情里设置）
     const stage = parent?.stage ?? null
     if (parent) {
-      x = (parent.pos_x ?? 0) + nodeWidth + GRID_H_GAP
-      y = (parent.pos_y ?? 0) + nodeHeight + ROW_V_GAP + 16
+      // 脑图式：子节点在父节点右侧，向下找空位
+      x = (parent.pos_x ?? 0) + nodeWidth + SLOT_GAP_X
+      y = parent.pos_y ?? 60
     } else {
       const v = readViewport()
       x = Math.round((wrapSize.value.w / 2 - v.x) / v.zoom - nodeWidth / 2)
       y = Math.round((wrapSize.value.h / 2 - v.y) / v.zoom - nodeHeight / 2)
     }
-    const p = placeInGradeCol(stage, { x, y })
+    const p = findFreeSpot(stage, x, y)
     const n = await createWithPosition(title, parent?.id ?? null, stage, p.x, p.y)
     selectedNodeId.value = n.id
   } catch (e) {
@@ -625,8 +698,9 @@ async function addChildAt(nodeId: string) {
   const title = await promptTitle(`作为「${parent.title}」的下一级创建`)
   if (!title) return
   try {
-    const x = (parent.pos_x ?? 0) - (nodeWidth + GRID_H_GAP) * ((store.nodes.filter((k) => k.parent_id === parent.id).length % PER_ROW))
-    const p = placeInGradeCol(parent.stage, { x: x || (parent.pos_x ?? 0), y: (parent.pos_y ?? 0) + nodeHeight + ROW_V_GAP + 16 })
+    // 脑图式：子节点排在父节点右侧，向下找不重叠的空位
+    const wantX = (parent.pos_x ?? 0) + nodeWidth + SLOT_GAP_X
+    const p = findFreeSpot(parent.stage, wantX, parent.pos_y ?? 60)
     const n = await createWithPosition(title, parent.id, parent.stage, p.x, p.y)
     selectedNodeId.value = n.id
     ElMessage.success('已创建下级节点')
@@ -642,7 +716,8 @@ async function addSiblingAt(nodeId: string) {
   const title = await promptTitle(base.parent_id ? `在「${store.byId.get(base.parent_id)?.title ?? ''}」下创建同级节点` : '将创建为顶层节点')
   if (!title) return
   try {
-    const p = placeInGradeCol(base.stage, { x: (base.pos_x ?? 0) + nodeWidth + GRID_H_GAP, y: base.pos_y ?? 0 })
+    // 同级节点排在本节点正下方，向下找不重叠的空位
+    const p = findFreeSpot(base.stage, base.pos_x ?? 0, (base.pos_y ?? 60) + nodeHeight + SLOT_GAP_Y)
     const n = await createWithPosition(title, base.parent_id, base.stage, p.x, p.y)
     selectedNodeId.value = n.id
     ElMessage.success('已创建同级节点')
@@ -832,17 +907,18 @@ const statsOpen = ref(false)
 
 <template>
   <div class="canvas-page">
-    <div ref="flowWrapRef" class="flow-wrap">
+    <div ref="flowWrapRef" class="flow-wrap" :style="{ '--vf-zoom': vpZoom }">
       <VueFlow
         :nodes="flowNodes"
         :edges="flowEdges"
         :connection-mode="ConnectionMode.Loose"
-        :default-edge-options="{ type: 'default' }"
+        :default-edge-options="{ type: 'floating' }"
         :min-zoom="0.25"
         :max-zoom="2.5"
         fit-view-on-init
         @node-click="onNodeClick"
         @edge-click="onEdgeClick"
+        @edge-double-click="onEdgeDblClick"
         @pane-click="onPaneClick"
         @connect="onConnect"
         @node-drag-start="onDragStart"
@@ -918,13 +994,17 @@ const statsOpen = ref(false)
 
         <span class="dock-sep" />
 
-        <el-popover placement="top-end" :width="220" trigger="hover">
+        <el-popover placement="top-end" :width="300" trigger="hover">
           <div class="legend">
-            <div class="legend__title">图例</div>
-            <div class="legend__row"><i class="ln hierarchy" />层级关系</div>
-            <div class="legend__row"><i class="ln prerequisite" />前置依赖</div>
-            <div class="legend__row"><i class="ln related" />一般关联</div>
-            <div class="legend__tip">每个学段一条纵向分区 · 节点不能拖出本学段分区<br />hover 节点可加下级/同级/删除</div>
+            <div class="legend__title">图例与帮助</div>
+            <div class="legend__row"><i class="ln hierarchy" />层级关系（父子，不可单独删）</div>
+            <div class="legend__row"><i class="ln prerequisite" />前置依赖：先学箭头尾部，再学箭头头部</div>
+            <div class="legend__row"><i class="ln related" />一般关联：相关主题互链，无先后顺序</div>
+            <div class="legend__tip">
+              连线模式：开启后依次点击两个节点即连线；关闭时点击节点打开详情<br />
+              删除连线：双击连线，或单击选中后按 Delete<br />
+              顶部彩条 = 学段分区，宽度随该学段知识点数量变化
+            </div>
           </div>
           <template #reference>
             <button class="dock-btn" title="图例与帮助">

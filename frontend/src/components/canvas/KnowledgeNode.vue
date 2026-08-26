@@ -144,23 +144,23 @@ function stop(ev: Event) {
   display: inline-block;
 }
 
-/* ---------- hover 操作条 ---------- */
+/* ---------- hover 操作条（尺寸不随画布缩放：用 --vf-zoom 反向补偿） ---------- */
 .kt-node__actions {
   position: absolute;
   left: 50%;
-  bottom: -34px;
-  transform: translateX(-50%) translateY(4px);
+  bottom: calc(-36px / var(--vf-zoom, 1));
+  transform: translateX(-50%) translateY(3px) scale(calc(1 / var(--vf-zoom, 1)));
+  transform-origin: center bottom;
   display: flex;
   gap: 1px;
   background: rgba(23, 30, 44, 0.92);
-  border-radius: 9px;
+  border-radius: 8px;
   padding: 2px;
-  box-shadow: 0 4px 12px rgba(15, 25, 45, 0.35);
+  box-shadow: 0 3px 10px rgba(15, 25, 45, 0.35);
   opacity: 0;
   visibility: hidden;
   transition:
     opacity 0.15s,
-    transform 0.15s,
     visibility 0.15s;
   z-index: 10;
 }
@@ -169,7 +169,7 @@ function stop(ev: Event) {
 .kt-node.selected .kt-node__actions {
   opacity: 1;
   visibility: visible;
-  transform: translateX(-50%) translateY(0);
+  transform: translateX(-50%) translateY(0) scale(calc(1 / var(--vf-zoom, 1)));
 }
 
 .kt-node__actions button {
@@ -177,10 +177,10 @@ function stop(ev: Event) {
   border: none;
   background: transparent;
   color: #cdd7e8;
-  font-size: 11px;
+  font-size: 10.5px;
   line-height: 1;
-  padding: 6px 8px;
-  border-radius: 7px;
+  padding: 5px 7px;
+  border-radius: 6px;
   cursor: pointer;
   white-space: nowrap;
   display: inline-flex;

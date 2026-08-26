@@ -46,11 +46,12 @@ function isActive(key: string) {
         dominant: !props.activeKey && s.key === dominantKey(),
         empty: s.count === 0 && !isActive(s.key),
       }"
-      :style="{ '--seg-color': s.color }"
+      :style="{ '--seg-color': s.color, '--grow': String(Math.max(s.count, 1)) }"
       :title="`${s.label} · 共 ${s.count} 个知识点${isActive(s.key) ? ' · 当前选中' : ''}`"
       @click="$emit('select', s.key)"
     >
       <span v-if="s.inView || isActive(s.key)" class="seg__label">{{ s.label }}</span>
+      <span v-if="(s.inView || isActive(s.key)) && s.count > 0" class="seg__count">{{ s.count }}</span>
     </button>
   </div>
 </template>
@@ -107,13 +108,22 @@ function isActive(key: string) {
 }
 
 .seg.expanded {
-  flex-grow: 1;
-  min-width: 88px;
-  max-width: 240px;
+  flex-grow: var(--grow, 1);
+  min-width: 64px;
   opacity: 1;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(0, 0, 0, 0.06)),
     var(--seg-color);
+}
+
+.seg__count {
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 10px;
+  line-height: 1;
+  background: rgba(0, 0, 0, 0.18);
+  border-radius: 8px;
+  padding: 2px 5px;
+  flex-shrink: 0;
 }
 
 .seg.active {
