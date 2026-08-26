@@ -18,7 +18,7 @@ import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 import '@vue-flow/minimap/dist/style.css'
 
-import { useTreeStore, pushUndo } from '@/stores/tree'
+import { useTreeStore, pushUndo, type TreeNode } from '@/stores/tree'
 import KnowledgeNode from '@/components/canvas/KnowledgeNode.vue'
 import DetailDrawer from '@/components/canvas/DetailDrawer.vue'
 import GradeBar from '@/components/canvas/GradeBar.vue'
@@ -858,13 +858,23 @@ async function confirmAddNode() {
   }
 }
 
-// ---------- 编辑节点（名称 + 学段） ----------
-const editDialog = ref<{ open: boolean; id: string | null; title: string; stage: string; origStage: string }>({
+// ---------- 编辑节点（名称 + 学段 + 上一级） ----------
+const editDialog = ref<{
+  open: boolean
+  id: string | null
+  title: string
+  stage: string
+  origStage: string
+  parentId: string | null
+  origParentId: string | null
+}>({
   open: false,
   id: null,
   title: '',
   stage: '',
   origStage: '',
+  parentId: null,
+  origParentId: null,
 })
 
 function openEditDialog(node: KNode) {
@@ -874,8 +884,21 @@ function openEditDialog(node: KNode) {
     title: node.title,
     stage: node.stage ?? '',
     origStage: node.stage ?? '',
+    parentId: node.parent_id,
+    origParentId: node.parent_id,
   }
 }
+
+/** 可选的上一级节点：排除自身及其全部后代，避免形成环 */
+const editParentOptions = computed(() => {
+  const id = editDialog.value.id
+  const keep = (n: KNode) => n.id !== id && !(id ? store.isDescendantCached(n.id, id) : false)
+  const build = (list: TreeNode[]): { value: string; label: string; children: unknown[] }[] =>
+    list
+      .filter((t) => keep(t.node))
+      .map((t) => ({ value: t.node.id, label: t.node.title, children: build(t.children) }))
+  return build(store.tree)
+})
 
 async function confirmEditNode() {
   const d = editDialog.value
@@ -886,8 +909,12 @@ async function confirmEditNode() {
   }
   try {
     await store.updateNode(d.id, { title, stage: d.stage || null })
-    // 若改了学段，把节点水平方向落回新学段分区（垂直位置不变）
-    if ((d.stage || null) !== d.origStage) {
+    // 改了上一级 → 移动节点（后端已做自身/后代环校验）
+    if (d.parentId !== d.origParentId) {
+      await store.moveNode(d.id, d.parentId)
+    }
+    // 若改了学段或父级，把节点水平方向落回新学段分区（垂直位置不变）
+    if ((d.stage || null) !== d.origStage || d.parentId !== d.origParentId) {
       const cur = store.byId.get(d.id)
       if (cur) {
         const p = placeInGradeCol(d.stage || null, { x: cur.pos_x ?? 0, y: cur.pos_y ?? 0 })
@@ -1143,8 +1170,8 @@ watch(drawerOpen, (v) => {
         </template>
       </el-dialog>
 
-      <!-- 编辑节点对话框：标题 + 学段 -->
-      <el-dialog v-model="editDialog.open" title="✎ 编辑知识点" width="420px" append-to-body>
+      <!-- 编辑节点对话框：标题 + 学段 + 上一级 -->
+      <el-dialog v-model="editDialog.open" title="✎ 编辑知识点" width="440px" append-to-body>
         <el-form label-width="72px" @submit.prevent>
           <el-form-item label="标题">
             <el-input
@@ -1160,6 +1187,18 @@ watch(drawerOpen, (v) => {
               <el-option value="" label="未知领域（暂不归类）" />
               <el-option v-for="g in GRADES" :key="g.key" :value="g.label" :label="g.label" />
             </el-select>
+          </el-form-item>
+          <el-form-item label="上一级">
+            <el-tree-select
+              v-model="editDialog.parentId"
+              :data="editParentOptions"
+              :props="{ label: 'label', value: 'value', children: 'children' }"
+              check-strictly
+              clearable
+              filterable
+              placeholder="选择新的上一级（留空 = 顶层）"
+              style="width: 100%"
+            />
           </el-form-item>
         </el-form>
         <template #footer>
