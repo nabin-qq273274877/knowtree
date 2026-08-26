@@ -99,3 +99,20 @@ export function matchGrade(stage?: string | null): GradeDef | null {
   if (!s) return null
   return matchAlias(s) ?? matchNumYear(s) ?? matchCnYear(s)
 }
+
+// ---------- 学段纵向分区 ----------
+// 画布按学段划分为若干纵向分区（幼儿园最左，向右依次到大学），
+// 每个分区宽度固定，节点拖拽不允许越出自己学段的分区。
+export const GRADE_COL_WIDTH = 560
+
+/** 学段 key → 分区序号（未设置排在最后）；-1 表示未知 */
+export function gradeColumnIndex(key: string | null | undefined): number {
+  if (!key) return GRADES.length // 未设置分区
+  const i = GRADES.findIndex((g) => g.key === key)
+  return i >= 0 ? i : GRADES.length
+}
+
+/** 分区序号 → 世界坐标 x 范围 */
+export function gradeColumnRange(index: number): { x0: number; x1: number } {
+  return { x0: index * GRADE_COL_WIDTH, x1: (index + 1) * GRADE_COL_WIDTH }
+}

@@ -7,7 +7,7 @@ import 'md-editor-v3/lib/style.css'
 
 import { api } from '@/api/client'
 import { useTreeStore } from '@/stores/tree'
-import { RELATION_LABEL, STATUS_META } from '@/utils/meta'
+import { GRADES, RELATION_LABEL, STATUS_META } from '@/utils/meta'
 import { dayjs } from '@/utils/day'
 import type { KAnnotation, KNode, KResource, NodeStatus } from '@/types'
 import ExplainPane from './ExplainPane.vue'
@@ -246,6 +246,17 @@ async function setStatus(status: NodeStatus) {
   if (node.value) await store.setStatus(node.value.id, status)
 }
 
+// 设置学段：决定节点在画布的分区与彩条颜色
+async function setStage(stage: string) {
+  if (!node.value) return
+  try {
+    await store.updateNode(node.value.id, { stage: stage || null })
+    ElMessage.success(stage ? `已归入「${stage}」学段` : '已清除学段（未设置）')
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : String(e))
+  }
+}
+
 defineExpose({ flushSave })
 </script>
 
@@ -262,12 +273,24 @@ defineExpose({ flushSave })
       </template>
     </div>
 
-    <!-- 标题 + 状态 -->
+    <!-- 标题 + 状态 + 学段 -->
     <div class="head">
       <h2>{{ node.title }}</h2>
-      <el-select :model-value="node.status" size="small" style="width: 130px" @change="(v: NodeStatus) => setStatus(v)">
-        <el-option v-for="(m, k) in STATUS_META" :key="k" :value="k" :label="m.label" />
-      </el-select>
+      <div class="head__selects">
+        <el-select
+          :model-value="node.stage ?? ''"
+          size="small"
+          style="width: 108px"
+          title="所属学段：决定画布分区与顶部彩条颜色"
+          @change="(v: string) => setStage(v)"
+        >
+          <el-option value="" label="未设置学段" />
+          <el-option v-for="g in GRADES" :key="g.key" :value="g.label" :label="g.label" />
+        </el-select>
+        <el-select :model-value="node.status" size="small" style="width: 130px" @change="(v: NodeStatus) => setStatus(v)">
+          <el-option v-for="(m, k) in STATUS_META" :key="k" :value="k" :label="m.label" />
+        </el-select>
+      </div>
     </div>
 
     <!-- Tabs：正文 / AI讲解 / 资源 / 批注 / 练习 / 关联 -->
@@ -424,6 +447,12 @@ defineExpose({ flushSave })
   font-size: 18px;
   color: #1f2b45;
   word-break: break-all;
+}
+
+.head__selects {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 .sec {

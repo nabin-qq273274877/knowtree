@@ -70,8 +70,8 @@ export const useTreeStore = defineStore('tree', {
       }
     },
 
-    async createNode(title: string, parentId: string | null) {
-      const n = await api.post<KNode>('/api/nodes', { title, parent_id: parentId })
+    async createNode(title: string, parentId: string | null, stage?: string | null) {
+      const n = await api.post<KNode>('/api/nodes', { title, parent_id: parentId, stage })
       this.nodes.push(n)
       return n
     },

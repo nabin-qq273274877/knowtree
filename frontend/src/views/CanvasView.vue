@@ -25,9 +25,19 @@ import DetailDrawer from '@/components/canvas/DetailDrawer.vue'
 import GradeBar from '@/components/canvas/GradeBar.vue'
 import type { GradeSegment } from '@/components/canvas/GradeBar.vue'
 import NavControls from '@/components/canvas/NavControls.vue'
+import FloatingEdge from '@/components/canvas/FloatingEdge.vue'
 import SettingsPanel from '@/components/panels/SettingsPanel.vue'
 import StatsPanel from '@/components/panels/StatsPanel.vue'
-import { GRADES, UNSET_GRADE, LINE_STYLE, RELATION_LABEL, matchGrade } from '@/utils/meta'
+import {
+  GRADES,
+  UNSET_GRADE,
+  GRADE_COL_WIDTH,
+  LINE_STYLE,
+  RELATION_LABEL,
+  matchGrade,
+  gradeColumnIndex,
+  gradeColumnRange,
+} from '@/utils/meta'
 import { api } from '@/api/client'
 import type { KNode, EdgeRelation } from '@/types'
 
@@ -80,12 +90,14 @@ const flowNodes = computed(() =>
 )
 
 const flowEdges = computed(() => {
+  // 统一使用浮动智能边：渲染时自动取两节点最近的边框锚点，贴边无空隙
   const hier = store.nodes
     .filter((n) => n.parent_id)
     .map((n) => ({
       id: `h-${n.id}`,
       source: n.parent_id!,
       target: n.id,
+      type: 'floating',
       style: { ...LINE_STYLE.hierarchy },
       selectable: false,
     }))
@@ -95,9 +107,8 @@ const flowEdges = computed(() => {
         id: e.id,
         source: e.source_id,
         target: e.target_id,
+        type: 'floating',
         label: RELATION_LABEL.prerequisite,
-        labelStyle: { fill: '#e8590c', fontSize: 11 },
-        labelBgStyle: { fill: '#fff' },
         markerEnd: MarkerType.ArrowClosed,
         style: { ...LINE_STYLE.prerequisite },
       }
@@ -106,6 +117,7 @@ const flowEdges = computed(() => {
       id: e.id,
       source: e.source_id,
       target: e.target_id,
+      type: 'floating',
       style: { ...LINE_STYLE.related },
     }
   })
@@ -164,7 +176,9 @@ function onNodeClick({ node }: NodeMouseEvent) {
     return
   }
   selectedEdgeId.value = null
+  // 始终显式打开详情：即使重复点击同一节点 / 抽屉曾被关闭也能再次打开
   selectedNodeId.value = id
+  drawerOpen.value = true
 }
 
 function onPaneClick() {
@@ -184,22 +198,42 @@ function clearPending() {
   pendingSourceId.value = null
 }
 
-// ---------- 拖拽落点持久化（含位置撤销）----------
+// ---------- 拖拽落点持久化（含位置撤销 + 学段分区约束）----------
 const dragStartPos = ref<Map<string, { x: number; y: number }>>(new Map())
+
+/** 节点必须停留在自己学段的纵向分区内（x 钳制），y 只限制在画布顶部以下 */
+function clampToGradeCol(node: KNode): { x: number; y: number } {
+  const col = gradeColumnRange(gradeColumnIndex(matchGrade(node.stage)?.key))
+  const MARGIN = 10
+  const x = Math.min(Math.max(node.pos_x ?? 0, col.x0 + MARGIN), col.x1 - nodeWidth - MARGIN)
+  const y = Math.max(node.pos_y ?? 0, 40)
+  return { x: Math.round(x), y: Math.round(y) }
+}
 
 function onDragStart(e: { node: GraphNode }) {
   dragStartPos.value.set(e.node.id, { x: e.node.position.x, y: e.node.position.y })
 }
 
+let lastClampWarnAt = 0
 function onDragStop(e: { node: GraphNode }) {
   const n = store.byId.get(e.node.id)
   if (!n) return
-  const x = Math.round(e.node.position.x)
-  const y = Math.round(e.node.position.y)
+  const dropped = { x: Math.round(e.node.position.x), y: Math.round(e.node.position.y) }
+  const limited = clampToGradeCol({ ...n, pos_x: dropped.x, pos_y: dropped.y })
+  const x = limited.x
+  const y = limited.y
+  if (x !== dropped.x || y !== dropped.y) {
+    const now = Date.now()
+    if (now - lastClampWarnAt > 2000) {
+      lastClampWarnAt = now
+      const g = matchGrade(n.stage)
+      ElMessage.info(`知识点不能拖出「${g?.label ?? '未设置'}」学段分区`)
+    }
+  }
   if (n.pos_x !== x || n.pos_y !== y) {
     const old = dragStartPos.value.get(e.node.id)
     const id = n.id
-    void store.savePosition(n.id, x, y)
+    void store.savePosition(id, x, y)
     if (old) {
       pushUndo({
         label: '移动节点',
@@ -214,41 +248,79 @@ function onDragStop(e: { node: GraphNode }) {
   }
 }
 
-// ---------- 自动排布（紧凑分层树）----------
+// ---------- 自动排布（按学段分区的紧凑网格）----------
+// 每个学段占一条纵向分区（与顶部彩条一一对应），分区内按层级 BFS 网格排列：
+// 同层节点每行最多 3 个，子层缩进下移，保证「父-子」纵向对齐、同区不跨学段。
+const COL_PAD = 28
+const GRID_H_GAP = 24
+const ROW_V_GAP = 34
+const PER_ROW = 3
+
 function computeLayout(): Map<string, { x: number; y: number }> {
-  const childrenOf = new Map<string, string[]>()
-  for (const n of store.nodes) {
-    const key = n.parent_id ?? '__root__'
-    if (!childrenOf.has(key)) childrenOf.set(key, [])
-    childrenOf.get(key)!.push(n.id)
-  }
   const pos = new Map<string, { x: number; y: number }>()
-  const H_GAP = 46
-  const V_GAP = 120
-  const TOP = 60
-  let cursorX = 60
 
-  const place = (id: string, depth: number): number => {
-    const kids = childrenOf.get(id) ?? []
-    if (!kids.length) {
-      pos.set(id, { x: cursorX, y: TOP + depth * V_GAP })
-      cursorX += nodeWidth + H_GAP
-      return nodeWidth
-    }
-    for (const k of kids) place(k, depth + 1)
-    const first = pos.get(kids[0])!
-    const last = pos.get(kids[kids.length - 1])!
-    pos.set(id, { x: Math.round((first.x + last.x + nodeWidth - nodeWidth) / 2), y: TOP + depth * V_GAP })
-    return last.x + nodeWidth - first.x
+  // 按学段分区分组
+  const groups = new Map<number, KNode[]>()
+  for (const n of store.nodes) {
+    const gi = gradeColumnIndex(matchGrade(n.stage)?.key)
+    if (!groups.has(gi)) groups.set(gi, [])
+    groups.get(gi)!.push(n)
   }
 
-  for (const r of childrenOf.get('__root__') ?? []) place(r, 0)
+  for (const [gi, list] of [...groups.entries()].sort((a, b) => a[0] - b[0])) {
+    const col = gradeColumnRange(gi)
+    const x0 = col.x0 + COL_PAD
+    const idsInGroup = new Set(list.map((n) => n.id))
+    const childrenOf = new Map<string, KNode[]>()
+    const roots: KNode[] = []
+    for (const n of list) {
+      // 父节点在同一学段内才构成组内层级，否则视为该组的根
+      if (n.parent_id && idsInGroup.has(n.parent_id)) {
+        if (!childrenOf.has(n.parent_id)) childrenOf.set(n.parent_id, [])
+        childrenOf.get(n.parent_id)!.push(n)
+      } else {
+        roots.push(n)
+      }
+    }
 
-  // 无父链可达的孤立节点（异常数据兜底）：排在最右侧一行
-  for (const n of store.nodes) {
-    if (!pos.has(n.id)) {
-      pos.set(n.id, { x: cursorX, y: TOP })
-      cursorX += nodeWidth + H_GAP
+    // BFS 逐层放置：每行 PER_ROW 个，子层相对父层 y 下移
+    const rowOf = new Map<string, number>()
+    let cursorRow = 0
+    const queue: { node: KNode; depth: number }[] = roots.map((n) => ({ node: n, depth: 0 }))
+    const placed = new Set<string>()
+
+    while (queue.length) {
+      // 取同一深度的一批
+      const depth = queue[0].depth
+      const batch: KNode[] = []
+      while (queue.length && queue[0].depth === depth) batch.push(queue.shift()!.node)
+      let colIdx = 0
+      for (const n of batch) {
+        placed.add(n.id)
+        const parentRow = (() => {
+          if (n.parent_id && rowOf.has(n.parent_id)) return rowOf.get(n.parent_id)!
+          return cursorRow
+        })()
+        const row = Math.max(cursorRow, parentRow + (roots.includes(n) ? 0 : 1))
+        rowOf.set(n.id, row)
+        const r = Math.floor(colIdx / PER_ROW)
+        const c = colIdx % PER_ROW
+        pos.set(n.id, {
+          x: x0 + c * (nodeWidth + GRID_H_GAP),
+          y: 60 + (row + r) * (nodeHeight + ROW_V_GAP),
+        })
+        colIdx++
+        for (const k of childrenOf.get(n.id) ?? []) queue.push({ node: k, depth: depth + 1 })
+      }
+      cursorRow += Math.ceil(batch.length / PER_ROW) + 1
+    }
+
+    // 组内兜底：BFS 未覆盖到的（环等异常数据）
+    let fallbackRow = cursorRow
+    for (const n of list) {
+      if (placed.has(n.id)) continue
+      pos.set(n.id, { x: x0, y: 60 + fallbackRow * (nodeHeight + ROW_V_GAP) })
+      fallbackRow++
     }
   }
   return pos
@@ -339,31 +411,29 @@ interface StageBucket {
   label: string
   color: string
   total: number
-  inView: number
 }
 
 const gradeSegments = computed<GradeSegment[]>(() => {
   const r = visibleRect.value
   const buckets = new Map<string, StageBucket>()
-  for (const g of GRADES) buckets.set(g.key, { key: g.key, label: g.label, color: g.color, total: 0, inView: 0 })
-  buckets.set(UNSET_GRADE.key, {
-    key: UNSET_GRADE.key,
-    label: UNSET_GRADE.label,
-    color: UNSET_GRADE.color,
-    total: 0,
-    inView: 0,
-  })
+  for (const g of GRADES) buckets.set(g.key, { key: g.key, label: g.label, color: g.color, total: 0 })
+  buckets.set(UNSET_GRADE.key, { key: UNSET_GRADE.key, label: UNSET_GRADE.label, color: UNSET_GRADE.color, total: 0 })
   for (const n of store.nodes) {
     const b = buckets.get(matchGrade(n.stage)?.key ?? UNSET_GRADE.key)
     if (!b) continue
     b.total++
-    const cx = (n.pos_x ?? 0) + nodeWidth / 2
-    const cy = (n.pos_y ?? 0) + nodeHeight / 2
-    if (cx >= r.x0 && cx <= r.x1 && cy >= r.y0 && cy <= r.y1) b.inView++
   }
-  const segs = [...buckets.values()].map(
-    (b): GradeSegment => ({ key: b.key, label: b.label, color: b.color, count: b.total, inView: b.inView }),
-  )
+  // 学段分区（纵向条带）与视口相交即视为「在视野内」，与彩条一一对应
+  const segs = [...buckets.values()].map((b) => {
+    const col = gradeColumnRange(gradeColumnIndex(b.key))
+    return {
+      key: b.key,
+      label: b.label,
+      color: b.color,
+      count: b.total,
+      inView: b.total > 0 && col.x0 <= r.x1 && col.x1 >= r.x0,
+    }
+  })
   // 「未设置」段只有在确实存在未匹配节点时才显示
   return segs.filter((s) => s.key !== UNSET_GRADE.key || s.count > 0)
 })
@@ -469,55 +539,113 @@ function onDrawerClosed() {
   drawerRef.value?.flushSave()
 }
 
-// ---------- 新建节点（底部功能坞）：有选中节点时挂为其子节点，否则建为根节点并放到视口中央 ----------
+// ---------- 新建节点：功能坞「新建」= 顶层/选中节点的子级；节点 hover 操作条 = 下级/同级 ----------
 const selectedNode = computed<KNode | undefined>(() =>
   selectedNodeId.value ? store.byId.get(selectedNodeId.value) : undefined,
 )
 
-async function addNodeManual() {
-  let title = ''
-  try {
-    const r = await ElMessageBox.prompt(
-      selectedNode.value ? `作为「${selectedNode.value.title}」的子节点创建` : '将创建为顶层节点',
-      '新建知识点',
+// 当前选中知识点所属学段：对应彩条始终展开并高亮
+const activeGradeKey = computed(() => {
+  const n = selectedNode.value
+  return n ? (matchGrade(n.stage)?.key ?? UNSET_GRADE.key) : null
+})
+
+/** 在学段分区内为节点挑一个落点 */
+function placeInGradeCol(stage: string | null, prefer?: { x: number; y: number }): { x: number; y: number } {
+  const fake = { stage, pos_x: prefer?.x ?? 0, pos_y: prefer?.y ?? 60 } as KNode
+  return clampToGradeCol(fake)
+}
+
+async function createWithPosition(
+  title: string,
+  parentId: string | null,
+  stage: string | null,
+  x: number,
+  y: number,
+): Promise<KNode> {
+  const n = await store.createNode(title, parentId, stage)
+  await store.savePosition(n.id, x, y)
+  if (!parentId) {
+    addNodes([
       {
-        confirmButtonText: '创建',
-        cancelButtonText: '取消',
-        inputPattern: /\S/,
-        inputErrorMessage: '标题不能为空',
+        id: n.id,
+        type: 'kt',
+        position: { x, y },
+        data: { node: { ...n, pos_x: x, pos_y: y }, selected: false, pending: false },
       },
-    )
-    title = r.value.trim()
-  } catch {
-    return
+    ])
   }
+  return n
+}
+
+async function promptTitle(prefix: string): Promise<string | null> {
+  try {
+    const r = await ElMessageBox.prompt(prefix, '新建知识点', {
+      confirmButtonText: '创建',
+      cancelButtonText: '取消',
+      inputPattern: /\S/,
+      inputErrorMessage: '标题不能为空',
+    })
+    return r.value.trim() || null
+  } catch {
+    return null
+  }
+}
+
+/** 功能坞「新建」：有选中节点时挂为其子节点，否则建为顶层节点（放视口中心，钳制在学段分区内） */
+async function addNodeManual() {
+  const parent = selectedNode.value
+  const title = await promptTitle(parent ? `作为「${parent.title}」的子节点创建` : '将创建为顶层节点')
   if (!title) return
   try {
-    const parent = selectedNode.value
-    const n = await store.createNode(title, parent?.id ?? null)
-    // 有父节点放其右下；否则放视口中心
     let x: number
     let y: number
+    // 新节点继承父节点的学段；顶层节点默认无学段（可在详情里设置）
+    const stage = parent?.stage ?? null
     if (parent) {
-      x = (parent.pos_x ?? 0) + nodeWidth + 40
-      y = (parent.pos_y ?? 0) + nodeHeight + 50
+      x = (parent.pos_x ?? 0) + nodeWidth + GRID_H_GAP
+      y = (parent.pos_y ?? 0) + nodeHeight + ROW_V_GAP + 16
     } else {
       const v = readViewport()
       x = Math.round((wrapSize.value.w / 2 - v.x) / v.zoom - nodeWidth / 2)
       y = Math.round((wrapSize.value.h / 2 - v.y) / v.zoom - nodeHeight / 2)
     }
-    await store.savePosition(n.id, x, y)
-    if (!parent) {
-      addNodes([
-        {
-          id: n.id,
-          type: 'kt',
-          position: { x, y },
-          data: { node: { ...n, pos_x: x, pos_y: y }, selected: false, pending: false },
-        },
-      ])
-    }
+    const p = placeInGradeCol(stage, { x, y })
+    const n = await createWithPosition(title, parent?.id ?? null, stage, p.x, p.y)
     selectedNodeId.value = n.id
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : String(e))
+  }
+}
+
+/** 节点 hover 操作条：增加下一级 */
+async function addChildAt(nodeId: string) {
+  const parent = store.byId.get(nodeId)
+  if (!parent) return
+  const title = await promptTitle(`作为「${parent.title}」的下一级创建`)
+  if (!title) return
+  try {
+    const x = (parent.pos_x ?? 0) - (nodeWidth + GRID_H_GAP) * ((store.nodes.filter((k) => k.parent_id === parent.id).length % PER_ROW))
+    const p = placeInGradeCol(parent.stage, { x: x || (parent.pos_x ?? 0), y: (parent.pos_y ?? 0) + nodeHeight + ROW_V_GAP + 16 })
+    const n = await createWithPosition(title, parent.id, parent.stage, p.x, p.y)
+    selectedNodeId.value = n.id
+    ElMessage.success('已创建下级节点')
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : String(e))
+  }
+}
+
+/** 节点 hover 操作条：增加同级 */
+async function addSiblingAt(nodeId: string) {
+  const base = store.byId.get(nodeId)
+  if (!base) return
+  const title = await promptTitle(base.parent_id ? `在「${store.byId.get(base.parent_id)?.title ?? ''}」下创建同级节点` : '将创建为顶层节点')
+  if (!title) return
+  try {
+    const p = placeInGradeCol(base.stage, { x: (base.pos_x ?? 0) + nodeWidth + GRID_H_GAP, y: base.pos_y ?? 0 })
+    const n = await createWithPosition(title, base.parent_id, base.stage, p.x, p.y)
+    selectedNodeId.value = n.id
+    ElMessage.success('已创建同级节点')
   } catch (e) {
     ElMessage.error(e instanceof Error ? e.message : String(e))
   }
@@ -648,12 +776,12 @@ function countDraft(list: DraftTreeNode[]): number {
   return list.reduce((s, d) => s + 1 + countDraft(d.children ?? []), 0)
 }
 
-async function insertDraftTree(list: DraftTreeNode[], parentId: string | null): Promise<number> {
+async function insertDraftTree(list: DraftTreeNode[], parentId: string | null, stage?: string | null): Promise<number> {
   let count = 0
   for (const d of list) {
-    const n = await store.createNode(d.title, parentId)
+    const n = await store.createNode(d.title, parentId, stage ?? null)
     count++
-    if (d.children?.length) count += await insertDraftTree(d.children, n.id)
+    if (d.children?.length) count += await insertDraftTree(d.children, n.id, stage ?? n.stage)
   }
   return count
 }
@@ -661,7 +789,9 @@ async function insertDraftTree(list: DraftTreeNode[], parentId: string | null): 
 async function confirmInsertSubtree() {
   inserting.value = true
   try {
-    const total = await insertDraftTree(subTree.value, subParent.value)
+    // 继承挂载点的学段，保证新子树落进对应学段分区
+    const parentStage = subParent.value ? store.byId.get(subParent.value)?.stage ?? null : null
+    const total = await insertDraftTree(subTree.value, subParent.value, parentStage)
     subOpen.value = false
     await autoLayout(true)
     ElMessage.success(`已插入 ${total} 个知识点`)
@@ -720,14 +850,22 @@ const statsOpen = ref(false)
         @move="onFlowMove"
       >
         <template #node-kt="ktProps">
-          <KnowledgeNode :data="ktProps.data" />
+          <KnowledgeNode
+            :data="ktProps.data"
+            @add-child="addChildAt(ktProps.data.node.id)"
+            @add-sibling="addSiblingAt(ktProps.data.node.id)"
+            @remove="removeNode(ktProps.data.node.id)"
+          />
+        </template>
+        <template #edge-floating="floatingProps">
+          <FloatingEdge v-bind="floatingProps" />
         </template>
         <Background :gap="22" pattern-color="#c9d3e3" />
         <MiniMap pannable zoomable />
       </VueFlow>
 
-      <!-- 顶部分级彩条：视口内的学段展开，其余收缩成色点 -->
-      <GradeBar :segments="gradeSegments" @select="focusGrade" />
+      <!-- 顶部分级彩条：视口进入的学段分区展开，其余收缩成色点；选中节点的学段常驻高亮 -->
+      <GradeBar :segments="gradeSegments" :active-key="activeGradeKey" @select="focusGrade" />
 
       <!-- 右上角设置 -->
       <button class="gear-btn" title="设置" @click="settingsOpen = true">
@@ -786,7 +924,7 @@ const statsOpen = ref(false)
             <div class="legend__row"><i class="ln hierarchy" />层级关系</div>
             <div class="legend__row"><i class="ln prerequisite" />前置依赖</div>
             <div class="legend__row"><i class="ln related" />一般关联</div>
-            <div class="legend__tip">顶部彩条按学段着色 · 点击可聚焦该学段</div>
+            <div class="legend__tip">每个学段一条纵向分区 · 节点不能拖出本学段分区<br />hover 节点可加下级/同级/删除</div>
           </div>
           <template #reference>
             <button class="dock-btn" title="图例与帮助">
@@ -801,7 +939,7 @@ const statsOpen = ref(false)
         v-model="drawerOpen"
         :with-header="false"
         size="560px"
-        :append-to-body="false"
+        append-to-body
         @closed="onDrawerClosed"
       >
         <DetailDrawer

@@ -1,30 +1,37 @@
 <script lang="ts">
-// 顶部分级彩条：视口内出现某学段的节点时该段彩条展开；
-// 视野外的学段收缩成小圆点标记。点击任意段可聚焦到该学段的节点。
+// 顶部分级彩条：视口进入某学段分区时该段彩条展开；
+// 视野外的学段收缩成小圆点标记。当前选中节点所属学段始终展开并加白圈。
+// 点击任意段可聚焦到该学段的节点。
 export interface GradeSegment {
   key: string
   label: string
   color: string
   /** 该学段节点总数 */
   count: number
-  /** 当前视口内的节点数 */
-  inView: number
+  /** 学段分区是否与当前视口相交 */
+  inView: boolean
 }
 
 function dominantKeyOf(segs: GradeSegment[]): string | null {
   let best: GradeSegment | null = null
   for (const s of segs) {
-    if (s.inView > 0 && (!best || s.inView > best.inView)) best = s
+    if (s.count > 0 && (!best || s.count > best.count)) best = s
   }
   return best?.key ?? null
 }
+
+export default {}
 </script>
 
 <script setup lang="ts">
-const props = defineProps<{ segments: GradeSegment[] }>()
+const props = defineProps<{ segments: GradeSegment[]; activeKey?: string | null }>()
 defineEmits<{ (e: 'select', key: string): void }>()
 
 const dominantKey = () => dominantKeyOf(props.segments)
+
+function isActive(key: string) {
+  return !!props.activeKey && props.activeKey === key
+}
 </script>
 
 <template>
@@ -33,13 +40,17 @@ const dominantKey = () => dominantKeyOf(props.segments)
       v-for="s in props.segments"
       :key="s.key"
       class="seg"
-      :class="{ expanded: s.inView > 0, dominant: s.key === dominantKey(), empty: s.count === 0 && s.inView === 0 }"
+      :class="{
+        expanded: s.inView || isActive(s.key),
+        active: isActive(s.key),
+        dominant: !props.activeKey && s.key === dominantKey(),
+        empty: s.count === 0 && !isActive(s.key),
+      }"
       :style="{ '--seg-color': s.color }"
-      :title="`${s.label} · 共 ${s.count} 个节点${s.inView ? `，视口内 ${s.inView}` : ''}`"
+      :title="`${s.label} · 共 ${s.count} 个知识点${isActive(s.key) ? ' · 当前选中' : ''}`"
       @click="$emit('select', s.key)"
     >
-      <span v-if="s.inView > 0" class="seg__label">{{ s.label }}</span>
-      <span v-if="s.inView > 0 && s.inView !== s.count" class="seg__count">{{ s.inView }}/{{ s.count }}</span>
+      <span v-if="s.inView || isActive(s.key)" class="seg__label">{{ s.label }}</span>
     </button>
   </div>
 </template>
@@ -98,17 +109,25 @@ const dominantKey = () => dominantKeyOf(props.segments)
 .seg.expanded {
   flex-grow: 1;
   min-width: 88px;
-  max-width: 220px;
+  max-width: 240px;
   opacity: 1;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(0, 0, 0, 0.06)),
     var(--seg-color);
 }
 
+.seg.active {
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.5),
+    0 0 0 2.5px rgba(255, 255, 255, 0.95),
+    0 3px 12px rgba(30, 50, 90, 0.4);
+  transform: translateY(-1px);
+}
+
 .seg.dominant {
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.5),
-    0 0 0 2px rgba(255, 255, 255, 0.9),
+    0 0 0 2px rgba(255, 255, 255, 0.75),
     0 3px 10px rgba(30, 50, 90, 0.35);
 }
 
@@ -118,14 +137,5 @@ const dominantKey = () => dominantKeyOf(props.segments)
   font-weight: 700;
   letter-spacing: 0.5px;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
-}
-
-.seg__count {
-  color: rgba(255, 255, 255, 0.92);
-  font-size: 10.5px;
-  background: rgba(0, 0, 0, 0.18);
-  border-radius: 9px;
-  padding: 2px 6px;
-  line-height: 1;
 }
 </style>
