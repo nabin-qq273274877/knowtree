@@ -30,7 +30,6 @@ interface UpdateCheckResult {
 }
 const updateInfo = ref<UpdateCheckResult | null>(null)
 const applyMsg = ref<{ ok: boolean; text: string } | null>(null)
-const updateSource = ref('')
 
 onMounted(async () => {
   try {
@@ -81,17 +80,6 @@ async function restartApp() {
     setTimeout(() => window.location.reload(), 1500)
     ElMessage.warning(e instanceof Error ? e.message : String(e))
   }
-}
-
-async function loadUpdateSource() {
-  const s = await api.get<Record<string, unknown>>('/api/settings')
-  if (typeof s['update.base_url'] === 'string') updateSource.value = s['update.base_url'] as string
-}
-void loadUpdateSource()
-
-async function saveUpdateSource() {
-  await api.put('/api/settings', { 'update.base_url': updateSource.value.trim() })
-  ElMessage.success('更新源已保存')
 }
 
 // ---------- 数据管理 ----------
@@ -164,6 +152,34 @@ async function onRestorePick(f: UploadFile) {
 }
 
 // ---------- LLM 配置 ----------
+// 常用服务商预设（统一 OpenAI 兼容协议），含本地部署的 Ollama / LM Studio
+const PROVIDERS: { key: string; label: string; base: string; models: string; local?: boolean }[] = [
+  { key: 'deepseek', label: 'DeepSeek 深度求索', base: 'https://api.deepseek.com/v1', models: 'deepseek-chat / deepseek-reasoner' },
+  { key: 'openai', label: 'OpenAI', base: 'https://api.openai.com/v1', models: 'gpt-4o / gpt-4o-mini / o3-mini' },
+  { key: 'moonshot', label: 'Kimi 月之暗面', base: 'https://api.moonshot.cn/v1', models: 'moonshot-v1-8k / kimi-k2-0711-preview' },
+  { key: 'qwen', label: '通义千问 DashScope', base: 'https://dashscope.aliyuncs.com/compatible-mode/v1', models: 'qwen-plus / qwen-turbo / qwen-max' },
+  { key: 'zhipu', label: '智谱 GLM', base: 'https://open.bigmodel.cn/api/paas/v4', models: 'glm-4-plus / glm-4-air / glm-4-flash（Key 格式：id.secret）' },
+  { key: 'siliconflow', label: '硅基流动 SiliconFlow', base: 'https://api.siliconflow.cn/v1', models: 'deepseek-ai/DeepSeek-V3 / Qwen/Qwen2.5-72B-Instruct' },
+  { key: 'openrouter', label: 'OpenRouter 聚合', base: 'https://openrouter.ai/api/v1', models: 'openai/gpt-4o-mini / deepseek/deepseek-chat …' },
+  { key: 'ollama', label: 'Ollama（本机）', base: 'http://localhost:11434/v1', models: 'llama3.1 / qwen2.5（API Key 可留空）', local: true },
+  { key: 'lmstudio', label: 'LM Studio（本机）', base: 'http://localhost:1234/v1', models: '已加载的模型名（API Key 可留空）', local: true },
+]
+
+const providerKey = ref('')
+const modelHint = ref('')
+
+function applyProvider(key: string) {
+  const p = PROVIDERS.find((x) => x.key === key)
+  if (!p) return
+  llmForm.value.base_url = p.base
+  modelHint.value = p.models
+}
+
+function detectProvider(baseUrl: string) {
+  const hit = PROVIDERS.find((p) => baseUrl && p.base.replace(/^https?:\/\//, '') === baseUrl.trim().replace(/^https?:\/\//, '').replace(/\/$/, ''))
+  providerKey.value = hit?.key ?? ''
+}
+
 const llmForm = ref({
   base_url: 'https://api.deepseek.com/v1',
   api_key: '',
@@ -189,6 +205,7 @@ async function loadLLM() {
       temperature: gn('llm.temperature', 0.7),
       max_tokens: gn('llm.max_tokens', 2048),
     }
+    detectProvider(llmForm.value.base_url)
   } finally {
     llmLoading.value = false
   }
@@ -251,8 +268,22 @@ async function testLLM() {
       <el-card shadow="never" style="margin-bottom: 16px">
         <template #header><span style="font-weight: 600">LLM 配置</span></template>
         <el-form label-width="110px" v-loading="llmLoading">
+          <el-form-item label="常用服务商">
+            <div style="width: 100%">
+              <el-select
+                v-model="providerKey"
+                clearable
+                placeholder="选择后自动填入地址（也可自定义）"
+                style="width: 100%"
+                @change="applyProvider"
+              >
+                <el-option v-for="p in PROVIDERS" :key="p.key" :value="p.key" :label="p.label + (p.local ? ' · 本地' : '')" />
+              </el-select>
+              <div v-if="modelHint" class="provider-hint">参考模型：{{ modelHint }}</div>
+            </div>
+          </el-form-item>
           <el-form-item label="API Base URL">
-            <el-input v-model="llmForm.base_url" placeholder="https://api.deepseek.com/v1（OpenAI 兼容地址）" />
+            <el-input v-model="llmForm.base_url" placeholder="https://api.deepseek.com/v1（OpenAI 兼容地址）" @blur="detectProvider(llmForm.base_url)" />
           </el-form-item>
           <el-form-item label="API Key">
             <el-input
@@ -263,7 +294,7 @@ async function testLLM() {
             />
           </el-form-item>
           <el-form-item label="模型名">
-            <el-input v-model="llmForm.model" placeholder="deepseek-chat / gpt-4o-mini / qwen-plus …" />
+            <el-input v-model="llmForm.model" :placeholder="modelHint || 'deepseek-chat / gpt-4o-mini / qwen-plus …'" />
           </el-form-item>
           <el-form-item label="Temperature">
             <el-slider v-model="llmForm.temperature" :min="0" :max="2" :step="0.1" style="width: 260px" show-input />
@@ -318,7 +349,7 @@ async function testLLM() {
       </el-card>
 
       <el-card shadow="never">
-        <template #header><span style="font-weight: 600">版本与更新（FR-11）</span></template>
+        <template #header><span style="font-weight: 600">版本与更新</span></template>
         <el-descriptions :column="2" border>
           <el-descriptions-item label="当前版本">{{ version?.version ?? '…' }}</el-descriptions-item>
           <el-descriptions-item label="构建时间">{{ version?.build_time ?? '—' }}</el-descriptions-item>
@@ -347,11 +378,6 @@ async function testLLM() {
             @click="applyUpdate"
           >一键更新到 {{ updateInfo.latest }}</el-button>
           <el-button v-if="appliedOk" type="warning" @click="restartApp">重启应用</el-button>
-        </div>
-        <div class="src-row">
-          <span class="dim">更新源：</span>
-          <el-input v-model="updateSource" size="small" placeholder="默认 GitHub Releases，可填镜像 API 地址" style="width: 340px" />
-          <el-button size="small" @click="saveUpdateSource">保存</el-button>
         </div>
       </el-card>
     </div>
@@ -400,11 +426,11 @@ async function testLLM() {
   overflow: auto;
 }
 
-.src-row {
-  margin-top: 14px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.provider-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #98a2b3;
+  line-height: 1.5;
 }
 
 .dim {

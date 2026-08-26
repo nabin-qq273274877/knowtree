@@ -31,15 +31,13 @@ import StatsPanel from '@/components/panels/StatsPanel.vue'
 import {
   GRADES,
   UNSET_GRADE,
-  GRADE_COL_WIDTH,
   LINE_STYLE,
-  RELATION_LABEL,
   matchGrade,
   gradeColumnIndex,
   gradeColumnRange,
 } from '@/utils/meta'
 import { api } from '@/api/client'
-import type { KNode, EdgeRelation } from '@/types'
+import type { KNode } from '@/types'
 
 const store = useTreeStore()
 const { fitView, addNodes, zoomIn, zoomOut, setViewport, viewport } = useVueFlow()
@@ -51,7 +49,7 @@ onMounted(async () => {
   const outOfZone = store.nodes.some((n) => {
     const col = gradeColumnRange(gradeColumnIndex(matchGrade(n.stage)?.key))
     const x = n.pos_x ?? 0
-    return x < col.x0 + COL_PAD || x + nodeWidth > col.x1 - COL_PAD
+    return x < col.x0 - ZONE_TOLERANCE + COL_PAD || x + nodeWidth > col.x1 + ZONE_TOLERANCE - COL_PAD
   })
   if (store.nodes.some((n) => n.pos_x == null || n.pos_y == null) || outOfZone) {
     await nextTick()
@@ -68,13 +66,11 @@ const nodeHeight = 64
 interface KtNodeData {
   node: KNode
   selected: boolean
-  pending: boolean
   stageColor?: string
   [key: string]: unknown
 }
 
 const selectedNodeId = ref<string | null>(null)
-const pendingSourceId = ref<string | null>(null)
 const selectedEdgeId = ref<string | null>(null)
 
 const flowNodes = computed(() =>
@@ -86,8 +82,7 @@ const flowNodes = computed(() =>
         position: { x: n.pos_x ?? 0, y: n.pos_y ?? 0 },
         data: {
           node: n,
-          selected: n.id === selectedNodeId.value || n.id === pendingSourceId.value,
-          pending: n.id === pendingSourceId.value,
+          selected: n.id === selectedNodeId.value,
           stageColor: matchGrade(n.stage)?.color ?? '#cbd5e1',
         } satisfies KtNodeData,
         draggable: true,
@@ -116,7 +111,7 @@ const flowEdges = computed(() => {
         source: e.source_id,
         target: e.target_id,
         type: 'floating',
-        label: RELATION_LABEL.prerequisite,
+        label: '前置',
         markerEnd: MarkerType.ArrowClosed,
         style: { ...LINE_STYLE.prerequisite },
         data,
@@ -134,47 +129,33 @@ const flowEdges = computed(() => {
   return [...hier, ...rel]
 })
 
-// ---------- 连线类型 ----------
-const relationType = ref<EdgeRelation>('related')
-// 连线模式开关：开启后点击节点用于连线，关闭时点击=打开详情
-const connectMode = ref(false)
-
-watch(connectMode, (on) => {
-  ElMessage.info(on ? '连线模式：依次点击两个节点建立连线（Esc 退出）' : '已退出连线模式')
-})
-
-// 点选连线：仅在「连线模式」开启时生效；普通点击 = 选中并打开详情
-function onNodeClick({ node }: NodeMouseEvent) {
-  const id = node.id as string
-  if (connectMode.value) {
-    if (pendingSourceId.value && pendingSourceId.value !== id) {
-      const src = pendingSourceId.value
-      clearPending()
-      void createEdgeBetween(src, id)
-      return
-    }
-    if (pendingSourceId.value === id) {
-      clearPending()
-      return
-    }
-    selectedEdgeId.value = null
-    selectedNodeId.value = id
-    return
+// ---------- 连线规则 ----------
+// 连线只表达「学习先后」：只能从上层知识点连向下层知识点，
+// 同层（含同级）不允许连线；上层可以同时连多个下层（多上连多下）。
+function depthOf(id: string): number {
+  let d = 0
+  let cur = store.byId.get(id)
+  while (cur?.parent_id && d < 64) {
+    d++
+    cur = store.byId.get(cur.parent_id)
   }
+  return d
+}
+
+// 点击节点 = 选中并打开详情（连线直接从节点锚点拖出，无需专门模式）
+function onNodeClick({ node }: NodeMouseEvent) {
   selectedEdgeId.value = null
   // 始终显式打开详情：即使重复点击同一节点 / 抽屉曾被关闭也能再次打开
-  selectedNodeId.value = id
+  selectedNodeId.value = node.id as string
   drawerOpen.value = true
 }
 
 function onPaneClick() {
-  clearPending()
   selectedNodeId.value = null
   selectedEdgeId.value = null
 }
 
 function onEdgeClick({ edge }: EdgeMouseEvent) {
-  clearPending()
   selectedNodeId.value = null
   // 层级线不可选中删除
   selectedEdgeId.value = edge.id.startsWith('h-') ? null : edge.id
@@ -182,7 +163,6 @@ function onEdgeClick({ edge }: EdgeMouseEvent) {
 
 // 双击连线直接删除（层级线除外）
 function onEdgeDblClick({ edge }: EdgeMouseEvent) {
-  clearPending()
   selectedNodeId.value = null
   if (edge.id.startsWith('h-')) {
     ElMessage.info('层级线由父子关系生成，删除子节点即可移除')
@@ -191,18 +171,15 @@ function onEdgeDblClick({ edge }: EdgeMouseEvent) {
   void removeEdge(edge.id)
 }
 
-function clearPending() {
-  pendingSourceId.value = null
-}
-
 // ---------- 拖拽落点持久化（含位置撤销 + 学段分区约束）----------
 const dragStartPos = ref<Map<string, { x: number; y: number }>>(new Map())
 
-/** 节点必须停留在自己学段的纵向分区内（x 钳制），y 只限制在画布顶部以下 */
+/** 节点必须停留在自己学段分区内（允许少量溢出），y 只限制在画布顶部以下 */
 function clampToGradeCol(node: KNode): { x: number; y: number } {
   const col = gradeColumnRange(gradeColumnIndex(matchGrade(node.stage)?.key))
-  const MARGIN = 10
-  const x = Math.min(Math.max(node.pos_x ?? 0, col.x0 + MARGIN), col.x1 - nodeWidth - MARGIN)
+  const x0 = col.x0 - ZONE_TOLERANCE + COL_PAD
+  const x1 = col.x1 + ZONE_TOLERANCE - COL_PAD
+  const x = Math.min(Math.max(node.pos_x ?? 0, x0), Math.max(x0, x1 - nodeWidth))
   const y = Math.max(node.pos_y ?? 0, 40)
   return { x: Math.round(x), y: Math.round(y) }
 }
@@ -246,13 +223,16 @@ function onDragStop(e: { node: GraphNode }) {
   }
 }
 
-// ---------- 自动排布（按学段分区的紧凑网格）----------
-// 每个学段占一条纵向分区（与顶部彩条一一对应），分区内按层级 BFS 网格排列：
-// 同层节点每行最多 3 个，子层缩进下移，保证「父-子」纵向对齐、同区不跨学段。
+// ---------- 自动排布（学段分区内的整洁层级树，参考 mindmap / org-chart）----------
+// 每个学段占一条纵向分区（与顶部彩条一一对应）；分区内做经典整齐树布局：
+// 子节点排在父节点下一层、水平依次展开，父节点水平居中于子块上方，
+// 整棵子树保持连续不与其他子树交错，一级一级清晰可读。
 const COL_PAD = 28
-const GRID_H_GAP = 24
-const ROW_V_GAP = 34
-const PER_ROW = 3
+const SIB_GAP = 20 // 兄弟节点水平间距
+const LEVEL_GAP = 64 // 层与层的垂直间距
+const TOP_Y = 60
+// 分区两侧允许的少量溢出（兄弟较多时允许越过分区中线一点，避免挤压重叠）
+const ZONE_TOLERANCE = 130
 
 function computeLayout(): Map<string, { x: number; y: number }> {
   const pos = new Map<string, { x: number; y: number }>()
@@ -267,7 +247,8 @@ function computeLayout(): Map<string, { x: number; y: number }> {
 
   for (const [gi, list] of [...groups.entries()].sort((a, b) => a[0] - b[0])) {
     const col = gradeColumnRange(gi)
-    const x0 = col.x0 + COL_PAD
+    let cursor = col.x0 + COL_PAD
+
     const idsInGroup = new Set(list.map((n) => n.id))
     const childrenOf = new Map<string, KNode[]>()
     const roots: KNode[] = []
@@ -281,44 +262,36 @@ function computeLayout(): Map<string, { x: number; y: number }> {
       }
     }
 
-    // BFS 逐层放置：每行 PER_ROW 个，子层相对父层 y 下移
-    const rowOf = new Map<string, number>()
-    let cursorRow = 0
-    const queue: { node: KNode; depth: number }[] = roots.map((n) => ({ node: n, depth: 0 }))
-    const placed = new Set<string>()
+    const visited = new Set<string>()
 
-    while (queue.length) {
-      // 取同一深度的一批
-      const depth = queue[0].depth
-      const batch: KNode[] = []
-      while (queue.length && queue[0].depth === depth) batch.push(queue.shift()!.node)
-      let colIdx = 0
-      for (const n of batch) {
-        placed.add(n.id)
-        const parentRow = (() => {
-          if (n.parent_id && rowOf.has(n.parent_id)) return rowOf.get(n.parent_id)!
-          return cursorRow
-        })()
-        const row = Math.max(cursorRow, parentRow + (roots.includes(n) ? 0 : 1))
-        rowOf.set(n.id, row)
-        const r = Math.floor(colIdx / PER_ROW)
-        const c = colIdx % PER_ROW
-        pos.set(n.id, {
-          x: x0 + c * (nodeWidth + GRID_H_GAP),
-          y: 60 + (row + r) * (nodeHeight + ROW_V_GAP),
-        })
-        colIdx++
-        for (const k of childrenOf.get(n.id) ?? []) queue.push({ node: k, depth: depth + 1 })
+    const place = (n: KNode, depth: number): void => {
+      visited.add(n.id)
+      const kids = childrenOf.get(n.id) ?? []
+      const y = TOP_Y + depth * (nodeHeight + LEVEL_GAP)
+      if (!kids.length) {
+        pos.set(n.id, { x: cursor, y })
+        cursor += nodeWidth + SIB_GAP
+        return
       }
-      cursorRow += Math.ceil(batch.length / PER_ROW) + 1
+      const kidStart = cursor
+      for (const k of kids) place(k, depth + 1)
+      const kidEnd = cursor - SIB_GAP // 最后一个子节点的右边界
+      // 父节点在子块上方水平居中；至少不早于自己的分配起点
+      const centerX = Math.max(kidStart, kidStart + (kidEnd - kidStart - nodeWidth) / 2)
+      pos.set(n.id, { x: Math.round(centerX), y })
     }
 
-    // 组内兜底：BFS 未覆盖到的（环等异常数据）
-    let fallbackRow = cursorRow
-    for (const n of list) {
-      if (placed.has(n.id)) continue
-      pos.set(n.id, { x: x0, y: 60 + fallbackRow * (nodeHeight + ROW_V_GAP) })
-      fallbackRow++
+    for (const r of roots) place(r, 0)
+
+    // 组内兜底：环等异常数据未放置的，排在已用区域下方
+    if (visited.size < list.length) {
+      const maxY = Math.max(TOP_Y, ...[...pos.values()].map((p) => p.y))
+      let fy = maxY + nodeHeight + LEVEL_GAP
+      for (const n of list) {
+        if (visited.has(n.id)) continue
+        pos.set(n.id, { x: col.x0 + COL_PAD, y: fy })
+        fy += nodeHeight + LEVEL_GAP
+      }
     }
   }
   return pos
@@ -400,13 +373,20 @@ const vpZoom = computed(() => {
 // 连线创建时用户拖拽的把手方向（会话内记忆，edgeId → {s,t}，t/r/b/l）
 const edgeAnchors = ref(new Map<string, { s?: string; t?: string }>())
 
+/** 建立连线：只能上层 → 下层；返回创建结果（null=被拒绝） */
 async function createEdgeBetween(
   sourceId: string,
   targetId: string,
   handles?: { s?: string | null; t?: string | null },
-) {
+): Promise<boolean> {
+  const ds = depthOf(sourceId)
+  const dt = depthOf(targetId)
+  if (ds >= dt) {
+    ElMessage.warning('连线表示学习先后：只能从上层知识点连向下层（同级或向上不允许）')
+    return false
+  }
   try {
-    const e = await store.createEdge(sourceId, targetId, relationType.value)
+    const e = await store.createEdge(sourceId, targetId, 'prerequisite')
     if (handles?.s || handles?.t) {
       edgeAnchors.value.set(e.id, { s: handles.s ?? undefined, t: handles.t ?? undefined })
     }
@@ -419,9 +399,11 @@ async function createEdgeBetween(
         await store.createEdgeRaw({ id: e.id, source_id: e.source_id, target_id: e.target_id, relation: e.relation })
       },
     })
-    ElMessage.success(`已连接（${RELATION_LABEL[relationType.value]}）`)
+    ElMessage.success('已连接（学习先后）')
+    return true
   } catch (e) {
     ElMessage.warning(e instanceof Error ? e.message : String(e))
+    return false
   }
 }
 
@@ -514,7 +496,6 @@ function onKeydown(ev: KeyboardEvent) {
   const tag = (ev.target as HTMLElement)?.tagName?.toLowerCase()
   if (tag === 'input' || tag === 'textarea') return
   if (ev.key === 'Escape') {
-    clearPending()
     selectedNodeId.value = null
     selectedEdgeId.value = null
     drawerOpen.value = false
@@ -564,10 +545,6 @@ async function removeEdge(id: string) {
 // ---------- 节点操作 ----------
 const drawerOpen = ref(false)
 const drawerRef = ref<InstanceType<typeof DetailDrawer> | null>(null)
-
-watch(selectedNodeId, (id) => {
-  if (id && !connectMode.value) drawerOpen.value = true
-})
 
 // 关联知识点跳转：切换详情并居中该节点
 function jumpTo(id: string) {
@@ -962,23 +939,12 @@ const statsOpen = ref(false)
         <button class="dock-btn" title="新建知识点（有选中节点时挂为其子级）" @click="addNodeManual">
           <span class="ico">➕</span><small>新建</small>
         </button>
-        <button class="dock-btn" title="自动整理整棵知识树的布局" :disabled="layouting" @click="autoLayout()">
+        <button class="dock-btn" title="按学段分区整理成层级树布局" :disabled="layouting" @click="autoLayout()">
           <span class="ico">✨</span><small>{{ layouting ? '排布中…' : '排布' }}</small>
         </button>
         <button class="dock-btn" title="AI 批量生成知识点子树" @click="openSubDialog">
           <span class="ico">🤖</span><small>AI 子树</small>
         </button>
-
-        <span class="dock-sep" />
-
-        <div class="dock-seg" title="新连线的类型">
-          <button :class="{ active: relationType === 'related' }" @click="relationType = 'related'">关联</button>
-          <button :class="{ active: relationType === 'prerequisite' }" @click="relationType = 'prerequisite'">前置</button>
-        </div>
-        <label class="mode-switch" title="开启后点击两个节点即建立连线；关闭时点击节点打开详情">
-          <span>连线模式</span>
-          <el-switch v-model="connectMode" size="small" />
-        </label>
 
         <span class="dock-sep" />
 
@@ -994,14 +960,14 @@ const statsOpen = ref(false)
 
         <span class="dock-sep" />
 
-        <el-popover placement="top-end" :width="300" trigger="hover">
+        <el-popover placement="top-end" :width="320" trigger="click">
           <div class="legend">
             <div class="legend__title">图例与帮助</div>
-            <div class="legend__row"><i class="ln hierarchy" />层级关系（父子，不可单独删）</div>
-            <div class="legend__row"><i class="ln prerequisite" />前置依赖：先学箭头尾部，再学箭头头部</div>
-            <div class="legend__row"><i class="ln related" />一般关联：相关主题互链，无先后顺序</div>
+            <div class="legend__row"><i class="ln hierarchy" />层级关系：父子从属，不可单独删除</div>
+            <div class="legend__row"><i class="ln prerequisite" />连线 = 学习先后：上层学完再学下层（多上可连多下）</div>
             <div class="legend__tip">
-              连线模式：开启后依次点击两个节点即连线；关闭时点击节点打开详情<br />
+              建连线：hover 节点出现锚点，按住从一个节点拖到另一个节点<br />
+              同层/同级之间不允许连线；方向必须自上而下<br />
               删除连线：双击连线，或单击选中后按 Delete<br />
               顶部彩条 = 学段分区，宽度随该学段知识点数量变化
             </div>
@@ -1211,45 +1177,6 @@ const statsOpen = ref(false)
   background: rgba(255, 255, 255, 0.14);
   margin: 0 6px;
   flex-shrink: 0;
-}
-
-.dock-seg {
-  display: flex;
-  background: rgba(255, 255, 255, 0.07);
-  border-radius: 9px;
-  padding: 2px;
-  margin-right: 4px;
-}
-
-.dock-seg button {
-  appearance: none;
-  border: none;
-  background: transparent;
-  color: #aab6cc;
-  font-size: 11.5px;
-  padding: 6px 10px;
-  border-radius: 7px;
-  cursor: pointer;
-  transition:
-    background 0.12s,
-    color 0.12s;
-}
-
-.dock-seg button.active {
-  background: #5b8def;
-  color: #fff;
-  font-weight: 600;
-}
-
-.mode-switch {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 12px;
-  color: #cdd7e8;
-  padding: 0 8px;
-  cursor: pointer;
-  white-space: nowrap;
 }
 
 /* ---------- 图例弹层 ---------- */

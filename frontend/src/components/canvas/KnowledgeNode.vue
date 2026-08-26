@@ -10,7 +10,6 @@ const props = defineProps<{
   data: {
     node: KNode
     selected: boolean
-    pending: boolean // 点选连线模式：该节点是待连接的源
     stageColor?: string // 学段彩条同款颜色，未匹配时为灰色
   }
 }>()
@@ -31,7 +30,7 @@ function stop(ev: Event) {
 <template>
   <div
     class="kt-node"
-    :class="{ selected: data.selected, pending: data.pending }"
+    :class="{ selected: data.selected }"
     :style="{ '--status-color': status.color }"
     :title="data.node.title"
   >
@@ -216,7 +215,7 @@ function stop(ev: Event) {
 }
 
 .kt-node:hover :deep(.vue-flow__handle.anchor),
-.kt-node.pending :deep(.vue-flow__handle.anchor) {
+.kt-node.selected :deep(.vue-flow__handle.anchor) {
   opacity: 1;
 }
 </style>
