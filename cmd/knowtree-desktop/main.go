@@ -47,8 +47,10 @@ func main() {
 	defaultData := filepath.Join(filepath.Dir(exePath), "data")
 
 	dataDir := flag.String("data", defaultData, "数据目录")
-	width := flag.Int("width", 1440, "窗口宽度")
-	height := flag.Int("height", 900, "窗口高度")
+	width := flag.Int("width", 1200, "窗口宽度")
+	height := flag.Int("height", 780, "窗口高度")
+	// 开发调试时可固定端口（配合 vite dev 的 /api 代理）；默认随机空闲端口
+	addr := flag.String("addr", "", "固定 HTTP 监听地址（如 127.0.0.1:6010），留空则随机")
 	flag.Parse()
 
 	if err := os.MkdirAll(*dataDir, 0o755); err != nil {
@@ -77,9 +79,13 @@ func main() {
 	r := api.NewRouter(cfg, gdb, *dataDir)
 
 	// 在本机回环地址上挑一个空闲端口并直接持有 listener，避免竞态
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	listenAddr := *addr
+	if listenAddr == "" {
+		listenAddr = "127.0.0.1:0"
+	}
+	ln, err := net.Listen("tcp", listenAddr)
 	if err != nil {
-		log.Fatalf("[desktop] listen: %v", err)
+		log.Fatalf("[desktop] listen %s: %v", listenAddr, err)
 	}
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", ln.Addr().(*net.TCPAddr).Port)
 
@@ -112,8 +118,8 @@ func main() {
 		Title:     "知树·KnowTree",
 		Width:     *width,
 		Height:    *height,
-		MinWidth:  1024,
-		MinHeight: 700,
+		MinWidth:  880,
+		MinHeight: 600,
 		// 单实例锁：重复启动时聚焦已开窗口，避免两个进程写同一个 SQLite
 		SingleInstanceLock: &options.SingleInstanceLock{
 			UniqueId: "cn.knowtree.desktop",

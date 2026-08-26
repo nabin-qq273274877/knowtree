@@ -458,14 +458,19 @@ const gradeSegments = computed<GradeSegment[]>(() => {
     }
     it.count++
   }
+  // 学段锚点：有节点 → 内容范围中点（学段宽度随节点分布自动伸展）；
+  // 空学段 → 固定分区中心，但只有视口真正越过分界才会显示
   for (const it of items) {
     if (it.count === 0) {
       const col = gradeColumnRange(gradeColumnIndex(it.key))
       it.start = it.end = (col.x0 + col.x1) / 2
+    } else {
+      const mid = (it.start + it.end) / 2
+      it.start = it.end = mid
     }
   }
 
-  // 相邻学段边界 = 前者右沿与后者左沿的中点；
+  // 相邻学段边界 = 两侧锚点的中点；
   // 最左/最右学段的边界向外无限延伸——拖到画布尽头时端点学段始终保持点亮
   const bounds: number[] = [Number.NEGATIVE_INFINITY]
   for (let k = 1; k < items.length; k++) {
@@ -488,16 +493,16 @@ function currentViewportGrade(): string {
   const cx = (r.x0 + r.x1) / 2
   const raw = [...GRADES, UNSET_GRADE as unknown as GradeDef].map((g) => {
     const list = store.nodes.filter((n) => (matchGrade(n.stage)?.key ?? UNSET_GRADE.key) === g.key)
-    let start: number
-    let end: number
+    let c: number
     if (!list.length) {
       const col = gradeColumnRange(gradeColumnIndex(g.key))
-      start = end = (col.x0 + col.x1) / 2
+      c = (col.x0 + col.x1) / 2
     } else {
-      start = Math.min(...list.map((n) => n.pos_x ?? 0))
-      end = Math.max(...list.map((n) => (n.pos_x ?? 0) + nodeWidth))
+      const minX = Math.min(...list.map((n) => n.pos_x ?? 0))
+      const maxX = Math.max(...list.map((n) => (n.pos_x ?? 0) + nodeWidth))
+      c = (minX + maxX) / 2
     }
-    return { key: g.key, label: g.label, start, end }
+    return { key: g.key, label: g.label, start: c, end: c }
   })
   const bs: number[] = [Number.NEGATIVE_INFINITY]
   for (let k = 1; k < raw.length; k++) bs.push((raw[k - 1].end + raw[k].start) / 2)
@@ -703,6 +708,8 @@ interface AddDialogState {
   mode: 'root' | 'child' | 'sibling'
   parentId: string | null
   parentTitle: string
+  /** 锚点节点：child=父节点；sibling=参照同级节点（位置排在其下方） */
+  anchorId: string | null
   title: string
   stage: string
 }
@@ -711,6 +718,7 @@ const addDialog = ref<AddDialogState>({
   mode: 'root',
   parentId: null,
   parentTitle: '',
+  anchorId: null,
   title: '',
   stage: '',
 })
@@ -723,6 +731,8 @@ function openAddDialog(mode: AddDialogState['mode'], base?: KNode | null) {
     mode,
     parentId: parent?.id ?? null,
     parentTitle: parent?.title ?? '',
+    // 记住锚点，确认时以它定位（而不是当时的选中节点，避免错位）
+    anchorId: mode === 'root' ? null : base?.id ?? null,
     title: '',
     // 默认学段：子级/同级继承所属父节点的学段；顶层用「当前视口所在学段」，其次上次选择
     stage: parent ? parent.stage ?? '' : currentViewportGrade() || lastUsedStage.value,
@@ -753,10 +763,11 @@ async function confirmAddNode() {
       if (!parent) throw new Error('父节点不存在')
       x = (parent.pos_x ?? 0) + nodeWidth + SLOT_GAP_X
       y = parent.pos_y ?? 60
-    } else if (d.mode === 'sibling' && d.parentId) {
-      const siblingBase = selectedNode.value
-      x = siblingBase?.pos_x ?? 0
-      y = (siblingBase?.pos_y ?? 60) + nodeHeight + SLOT_GAP_Y
+    } else if (d.mode === 'sibling') {
+      // 同级节点排在本节点正下方（锚点=点击 ＋同级 的那个节点，而非当前选中）
+      const anchor = d.anchorId ? store.byId.get(d.anchorId) : undefined
+      x = anchor?.pos_x ?? 0
+      y = (anchor?.pos_y ?? 60) + nodeHeight + SLOT_GAP_Y
     } else {
       const v = readViewport()
       x = Math.round((wrapSize.value.w / 2 - v.x) / v.zoom - nodeWidth / 2)

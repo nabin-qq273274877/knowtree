@@ -10,26 +10,23 @@ permissions:
 
 jobs:
   build:
-    name: Build ${{ matrix.goos }}-${{ matrix.goarch }}
-    runs-on: ubuntu-latest
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.runs-on }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - goos: windows
-            goarch: amd64
+          - name: windows-amd64
+            runs-on: windows-latest
             ext: .exe
-          - goos: linux
-            goarch: amd64
+          - name: macos-arm64
+            runs-on: macos-14 # Apple Silicon
             ext: ""
-          - goos: linux
-            goarch: arm64
+          - name: macos-amd64
+            runs-on: macos-13 # Intel
             ext: ""
-          - goos: darwin
-            goarch: amd64
-            ext: ""
-          - goos: darwin
-            goarch: arm64
+          - name: linux-amd64
+            runs-on: ubuntu-22.04
             ext: ""
 
     steps:
@@ -47,28 +44,67 @@ jobs:
         with:
           go-version: "1.24"
 
+      - name: Install Linux desktop deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libnss3-dev
+
       - name: Build frontend
         working-directory: frontend
         run: |
           pnpm install --frozen-lockfile
           pnpm build
 
-      - name: Embed frontend & build binary
+      - name: Embed frontend & build desktop binary
+        shell: bash
         env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
           VERSION: ${{ github.ref_name }}
         run: |
           rm -rf web/dist && mkdir -p web/dist
           cp -r frontend/dist/* web/dist/
-          CGO_ENABLED=0 go build -trimpath \
-            -ldflags "-s -w -X main.version=${VERSION} -X main.buildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ) -X main.commit=${GITHUB_SHA::8}" \
-            -o "dist/knowtree-${GOOS}-${GOARCH}${ext}" ./cmd/knowtree
+          LDFLAGS="-s -w -X main.version=${VERSION} -X main.buildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ) -X main.commit=${GITHUB_SHA::8}"
+          NAME="knowtree-desktop-${{ matrix.name }}${{ matrix.ext }}"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            CGO_ENABLED=0 go build -tags "desktop,production" -trimpath \
+              -ldflags "$LDFLAGS -H windowsgui" -o "dist/$NAME" ./cmd/knowtree-desktop
+          else
+            go build -tags "desktop,production" -trimpath \
+              -ldflags "$LDFLAGS" -o "dist/$NAME" ./cmd/knowtree-desktop
+          fi
+
+      - name: Bundle macOS .app
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          NAME="knowtree-desktop-${{ matrix.name }}"
+          APP="dist/知树-KnowTree.app/Contents/MacOS"
+          mkdir -p "$APP" "dist/知树-KnowTree.app/Contents/Resources"
+          cp "dist/$NAME" "$APP/KnowTree"
+          chmod +x "$APP/KnowTree"
+          cat > "dist/知树-KnowTree.app/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>CFBundleName</key><string>知树·KnowTree</string>
+            <key>CFBundleDisplayName</key><string>知树·KnowTree</string>
+            <key>CFBundleIdentifier</key><string>cn.knowtree.desktop</string>
+            <key>CFBundleExecutable</key><string>KnowTree</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleIconFile</key><string>icon.icns</string>
+            <key>LSMinimumSystemVersion</key><string>10.15</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict></plist>
+          PLIST
+          # 图标：有 icns 则拷入；没有也不影响运行（后续可补）
+          if [ -f "build/appicon.icns" ]; then cp "build/appicon.icns" "dist/知树-KnowTree.app/Contents/Resources/icon.icns"; fi
+          # 去掉裸二进制，只发 .app
+          rm "dist/$NAME"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: knowtree-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: dist/knowtree-*
+          name: knowtree-desktop-${{ matrix.name }}
+          path: dist/*
 
   release:
     name: Publish release
@@ -83,12 +119,14 @@ jobs:
       - name: Generate checksums
         working-directory: dist
         run: |
-          sha256sum knowtree-* > checksums.txt
+          find . -type f \( -name '*.exe' -o -name '*.app' -o -type f \) | sort
+          sha256sum knowtree* > checksums.txt || true
+          find . -type f ! -name 'checksums.txt' -exec sha256sum {} + > checksums.txt
           cat checksums.txt
 
       - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
           files: |
-            dist/knowtree-*
+            dist/**
             dist/checksums.txt

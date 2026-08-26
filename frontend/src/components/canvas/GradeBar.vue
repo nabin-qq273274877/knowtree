@@ -116,6 +116,11 @@ function isActive(key: string) {
     var(--seg-color);
 }
 
+/* 空学段即使展开也保持弱化，避免误以为进入了有内容的学段 */
+.seg.empty.expanded:not(.active) {
+  opacity: 0.45;
+}
+
 .seg__count {
   color: rgba(255, 255, 255, 0.92);
   font-size: 10px;
