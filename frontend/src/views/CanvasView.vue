@@ -1100,7 +1100,7 @@ function openStats() {
       <el-drawer
         v-model="drawerOpen"
         :with-header="false"
-        size="640px"
+        size="70%"
         append-to-body
         @closed="onDrawerClosed"
       >
