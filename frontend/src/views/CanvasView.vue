@@ -471,12 +471,27 @@ const gradeSegments = computed<GradeSegment[]>(() => {
   }
 
   // 相邻学段边界 = 两侧锚点的中点；
-  // 最左/最右学段的边界向外无限延伸——拖到画布尽头时端点学段始终保持点亮
+  // 最左/最右学段的边界向外无限延伸——拖到画布尽头时端点学段始终保持点亮；
+  // 再做一次包含性校正：任何学段的分界都不允许切进自己的节点内容
   const bounds: number[] = [Number.NEGATIVE_INFINITY]
   for (let k = 1; k < items.length; k++) {
     bounds.push((items[k - 1].end + items[k].start) / 2)
   }
   bounds.push(Number.POSITIVE_INFINITY)
+  const CONTAIN_PAD = 16
+  for (let k = 0; k < items.length; k++) {
+    if (items[k].count === 0) continue
+    if (bounds[k] > items[k].start - CONTAIN_PAD) {
+      const v = items[k].start - CONTAIN_PAD
+      if (Number.isFinite(bounds[k])) bounds[k] = Math.min(bounds[k], v)
+      else bounds[k] = v
+    }
+    if (bounds[k + 1] < items[k].end + CONTAIN_PAD) {
+      const v = items[k].end + CONTAIN_PAD
+      if (Number.isFinite(bounds[k + 1])) bounds[k + 1] = Math.max(bounds[k + 1], v)
+      else bounds[k + 1] = v
+    }
+  }
 
   return items.map((it, k) => ({
     key: it.key,
@@ -507,6 +522,11 @@ function currentViewportGrade(): string {
   const bs: number[] = [Number.NEGATIVE_INFINITY]
   for (let k = 1; k < raw.length; k++) bs.push((raw[k - 1].end + raw[k].start) / 2)
   bs.push(Number.POSITIVE_INFINITY)
+  const CONTAIN_PAD = 16
+  for (let k = 0; k < raw.length; k++) {
+    if (bs[k] > raw[k].start - CONTAIN_PAD) bs[k] = Number.isFinite(bs[k]) ? Math.min(bs[k], raw[k].start - CONTAIN_PAD) : bs[k]
+    if (bs[k + 1] < raw[k].end + CONTAIN_PAD) bs[k + 1] = Math.max(bs[k + 1], raw[k].end + CONTAIN_PAD)
+  }
   for (let k = 0; k < raw.length; k++) {
     if (bs[k] <= cx && cx <= bs[k + 1]) {
       return raw[k].key === UNSET_GRADE.key ? '' : raw[k].label

@@ -29,7 +29,15 @@ interface UpdateCheckResult {
   asset_exists: boolean
 }
 const updateInfo = ref<UpdateCheckResult | null>(null)
+const updateFailed = ref(false)
 const applyMsg = ref<{ ok: boolean; text: string } | null>(null)
+
+// 「最新版本」一行的展示文案：
+// 查到且比当前新 → 版本号；查不到 / 与当前一致 / 比当前旧 → 当前无最新版本
+const latestVersionText = computed(() => {
+  if (updateInfo.value && updateInfo.value.has_update) return updateInfo.value.latest
+  return '当前无最新版本'
+})
 
 onMounted(async () => {
   try {
@@ -39,7 +47,7 @@ onMounted(async () => {
   }
 })
 
-// 每次打开面板都刷新版本与配置
+// 每次打开面板都刷新版本与配置，并静默检查一次更新
 watch(visible, (v) => {
   if (!v) return
   void (async () => {
@@ -50,17 +58,20 @@ watch(visible, (v) => {
     }
     await loadLLM()
     detectProvider(llmForm.value.base_url)
+    void checkUpdate(true)
   })()
 })
 
-async function checkUpdate() {
+async function checkUpdate(silent = false) {
   checking.value = true
   updateInfo.value = null
-  applyMsg.value = null
+  updateFailed.value = false
+  if (!silent) applyMsg.value = null
   try {
     updateInfo.value = await api.post<UpdateCheckResult>('/api/update/check', {})
   } catch (e) {
-    ElMessage.error(e instanceof Error ? e.message : String(e))
+    updateFailed.value = true
+    if (!silent) ElMessage.error(e instanceof Error ? e.message : String(e))
   } finally {
     checking.value = false
   }
@@ -411,18 +422,15 @@ async function testLLM() {
         <div class="ver-rows" v-loading="checking">
           <div class="ver-row">
             <span class="ver-label">当前版本</span>
-            <span class="ver-val">{{ version?.version ?? '…' }}</span>
+            <span class="ver-val">{{ version?.version ?? 'v0.1.0' }}</span>
           </div>
           <div class="ver-row">
             <span class="ver-label">最新版本</span>
-            <span class="ver-val">{{ updateInfo?.latest ?? '点击「检查更新」获取' }}</span>
+            <span class="ver-val" :class="{ dim: !(updateInfo && updateInfo.has_update) }">{{ latestVersionText }}</span>
           </div>
         </div>
 
-        <div v-if="updateInfo && !updateInfo.has_update" style="margin-top: 12px">
-          <el-alert type="success" :closable="false" show-icon title="已是最新版本" />
-        </div>
-        <div v-if="updateInfo?.notes" style="margin-top: 12px">
+        <div v-if="updateInfo && updateInfo.has_update && updateInfo.notes" style="margin-top: 12px">
           <el-alert type="info" :closable="false" show-icon>
             <template #title>新版本说明</template>
             <pre class="notes">{{ updateInfo.notes }}</pre>
@@ -519,6 +527,12 @@ async function testLLM() {
   font-size: 15px;
   font-weight: 700;
   color: #1f2b45;
+}
+
+.ver-val.dim {
+  font-size: 13px;
+  font-weight: 400;
+  color: #98a2b3;
 }
 
 .dim {

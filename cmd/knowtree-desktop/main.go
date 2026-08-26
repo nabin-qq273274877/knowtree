@@ -33,7 +33,7 @@ import (
 
 // 构建期经 -ldflags 注入
 var (
-	version   = "dev"
+	version   = "v0.1.0"
 	buildTime = "unknown"
 	commit    = "unknown"
 )

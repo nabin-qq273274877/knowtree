@@ -29,7 +29,7 @@ if ($FrontendOnly) {
 }
 
 Write-Host '==> [3/3] 编译桌面客户端（windowsgui，无控制台）' -ForegroundColor Cyan
-$version = if (Test-Path "$root\VERSION") { (Get-Content "$root\VERSION" -Raw).Trim() } else { 'dev' }
+$version = if (Test-Path "$root\VERSION") { (Get-Content "$root\VERSION" -Raw).Trim() } else { 'v0.1.0' }
 $buildTime = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
 $ldflags = "-s -w -H windowsgui -X main.version=$version -X main.buildTime=$buildTime"
 New-Item -ItemType Directory -Force -Path "$root\bin" | Out-Null
@@ -40,6 +40,6 @@ go build -tags "desktop,production" -trimpath -ldflags $ldflags -o "$root\bin\kn
 if ($LASTEXITCODE -ne 0) { exit 1 }
 
 $size = [math]::Round((Get-Item "$root\bin\knowtree-desktop.exe").Length / 1MB, 1)
-Write-Host "==> 完成: bin\knowtree-desktop.exe (${size} MB, v$version)" -ForegroundColor Green
+Write-Host "==> 完成: bin\knowtree-desktop.exe (${size} MB, $version)" -ForegroundColor Green
 Write-Host '    双击运行（需要系统自带的 WebView2 运行时，Win10/11 一般已内置）'
 Write-Host '    数据目录：exe 同级 data\；日志：data\knowtree-desktop.log'

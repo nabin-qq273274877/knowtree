@@ -21,7 +21,7 @@ if [[ "${1:-}" == "--frontend-only" ]]; then
 fi
 
 echo "==> [3/3] 编译桌面客户端"
-version="dev"
+version="v0.1.0"
 [ -f "$root/VERSION" ] && version="$(tr -d '[:space:]' < "$root/VERSION")"
 build_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 mkdir -p "$root/bin"

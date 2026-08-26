@@ -1,4 +1,55 @@
+/* ---------- 知树主题：Element Plus 品牌化 ---------- */
 :root {
+  /* 与画布/功能坞配色一致的品牌色 */
+  --el-color-primary: #3b82f6;
+  --el-color-primary-light-3: #6ea5f8;
+  --el-color-primary-light-5: #9bc0fa;
+  --el-color-primary-light-7: #cdddfa;
+  --el-color-primary-light-8: #e1ebfd;
+  --el-color-primary-light-9: #f1f6fe;
+  --el-color-primary-dark-2: #2563eb;
+
+  --el-color-success: #22c55e;
+  --el-color-success-light-3: #57d387;
+  --el-color-success-light-5: #85e2a8;
+  --el-color-success-light-7: #b8f0cb;
+  --el-color-success-light-8: #cff5de;
+  --el-color-success-light-9: #e6fbef;
+  --el-color-success-dark-2: #16a34a;
+
+  --el-color-warning: #f59e0b;
+  --el-color-warning-light-3: #f7b84f;
+  --el-color-warning-light-5: #f9cd83;
+  --el-color-warning-light-7: #fce2ba;
+  --el-color-warning-light-8: #fdeed3;
+  --el-color-warning-light-9: #fef7ec;
+  --el-color-warning-dark-2: #d98a06;
+
+  --el-color-danger: #ef4444;
+  --el-color-danger-light-3: #f27070;
+  --el-color-danger-light-5: #f6a0a0;
+  --el-color-danger-light-7: #facccc;
+  --el-color-danger-light-8: #fce2e2;
+  --el-color-danger-light-9: #fef0f0;
+  --el-color-danger-dark-2: #dc2626;
+
+  --el-color-error: #ef4444;
+
+  --el-color-info: #94a3b8;
+  --el-color-info-light-3: #afc0d0;
+  --el-color-info-light-5: #c7d3df;
+  --el-color-info-light-7: #dfe6ee;
+  --el-color-info-light-8: #eaeff5;
+  --el-color-info-light-9: #f4f7fa;
+  --el-color-info-dark-2: #7c8ca3;
+
+  /* 文字 / 边框 / 圆角：与卡片、抽屉风格统一 */
+  --el-text-color-primary: #26334d;
+  --el-text-color-regular: #51607a;
+  --el-border-radius-base: 8px;
+  --el-border-radius-small: 6px;
+  --el-font-family: 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
+
   --kt-bg: #eef1f6;
 }
 
@@ -10,7 +61,16 @@ body,
 }
 
 body {
-  font-family: 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
+  font-family: var(--el-font-family);
   background: var(--kt-bg);
   overflow: hidden;
+}
+
+/* 弹窗圆角与阴影更柔和，贴合整体卡片风 */
+.el-dialog {
+  border-radius: 14px;
+}
+
+.el-message-box {
+  border-radius: 12px;
 }

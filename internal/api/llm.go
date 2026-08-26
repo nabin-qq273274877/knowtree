@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"unicode"
 
 	"github.com/gin-gonic/gin"
 
@@ -219,6 +220,7 @@ func extractJSON(s string) string {
 }
 
 // callJSON 让模型输出严格 JSON 并解析到 out。
+// 模型输出被 max_tokens 截断导致 JSON 不完整时，尝试自动补全右括号抢救。
 func callJSON(c *gin.Context, cfg llm.Config, userPrompt string, out any) error {
 	messages := []llm.Message{
 		{Role: "system", Content: "你输出严格的 JSON，不要任何解释文字，不要 Markdown 代码围栏以外的内容。"},
@@ -228,7 +230,67 @@ func callJSON(c *gin.Context, cfg llm.Config, userPrompt string, out any) error 
 	if err != nil {
 		return err
 	}
-	return json.Unmarshal([]byte(extractJSON(raw)), out)
+	data := extractJSON(raw)
+	if err := json.Unmarshal([]byte(data), out); err == nil {
+		return nil
+	}
+	if repaired, ok := repairTruncatedJSON(data); ok {
+		if err := json.Unmarshal([]byte(repaired), out); err == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("模型返回的 JSON 不完整或格式有误，请减少生成数量后重试，或在设置中调大 Max Tokens")
+}
+
+// repairTruncatedJSON 尽力把被截断的 JSON 补全：去掉最后一个不完整的元素，
+// 再按栈补齐缺失的 ] 与 }。（尽力而为，失败返回 false）
+func repairTruncatedJSON(s string) (string, bool) {
+	s = strings.TrimRightFunc(strings.TrimSpace(s), func(r rune) bool {
+		return unicode.IsSpace(r) || r == ',' || r == '"' || r == ':' || r == '\\' || r == ']' || r == '}'
+	})
+	if s == "" {
+		return "", false
+	}
+	var stack []rune
+	inStr := false
+	esc := false
+	for _, r := range s {
+		if esc {
+			esc = false
+			continue
+		}
+		switch r {
+		case '\\':
+			if inStr {
+				esc = true
+			}
+		case '"':
+			inStr = !inStr
+		case '[':
+			if !inStr {
+				stack = append(stack, '[')
+			}
+		case '{':
+			if !inStr {
+				stack = append(stack, '{')
+			}
+		case ']':
+			if !inStr && len(stack) > 0 && stack[len(stack)-1] == '[' {
+				stack = stack[:len(stack)-1]
+			}
+		case '}':
+			if !inStr && len(stack) > 0 && stack[len(stack)-1] == '{' {
+				stack = stack[:len(stack)-1]
+			}
+		}
+	}
+	if inStr {
+		s += `"`
+	}
+	for i := len(stack) - 1; i >= 0; i-- {
+		s += string(stack[i])
+	}
+	return s, true
 }
 
 // ---- POST /api/llm/generate-subtree ----
@@ -280,6 +342,10 @@ func (s *Server) llmGenerateSubtree(c *gin.Context) {
 	}
 
 	var tree []draftNode
+	// 生成整棵子树的 JSON 输出较长，max_tokens 太小会被截断；这里抬高下限
+	if cfg.MaxTokens < 4096 {
+		cfg.MaxTokens = 4096
+	}
 	if err := callJSON(c, cfg, prompt, &tree); err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "生成失败：" + err.Error()})
 		return
