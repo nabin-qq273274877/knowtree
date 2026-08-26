@@ -161,39 +161,19 @@ function onEdgeDblClick({ edge }: EdgeMouseEvent) {
   void removeEdge(edge.id)
 }
 
-// ---------- 拖拽落点持久化（含位置撤销 + 学段分区约束）----------
+// ---------- 拖拽落点持久化（含位置撤销）----------
 const dragStartPos = ref<Map<string, { x: number; y: number }>>(new Map())
-
-/** 节点左右不能拖出自己的学段分区（允许少量溢出）；上下不限制 */
-function clampToGradeCol(node: KNode): { x: number; y: number } {
-  const col = gradeColumnRange(gradeColumnIndex(matchGrade(node.stage)?.key))
-  const x0 = col.x0 - ZONE_TOLERANCE + COL_PAD
-  const x1 = col.x1 + ZONE_TOLERANCE - COL_PAD
-  const x = Math.min(Math.max(node.pos_x ?? 0, x0), Math.max(x0, x1 - nodeWidth))
-  return { x: Math.round(x), y: Math.round(node.pos_y ?? 0) }
-}
 
 function onDragStart(e: { node: GraphNode }) {
   dragStartPos.value.set(e.node.id, { x: e.node.position.x, y: e.node.position.y })
 }
 
-let lastClampWarnAt = 0
 function onDragStop(e: { node: GraphNode }) {
   const n = store.byId.get(e.node.id)
   if (!n) return
-  const dropped = { x: Math.round(e.node.position.x), y: Math.round(e.node.position.y) }
-  const limited = clampToGradeCol({ ...n, pos_x: dropped.x, pos_y: dropped.y })
-  const x = limited.x
-  const y = limited.y
-  // 只有左右方向被明显拽回（>30px）才提示；上下方向不做限制
-  if (Math.abs(x - dropped.x) > 30) {
-    const now = Date.now()
-    if (now - lastClampWarnAt > 2500) {
-      lastClampWarnAt = now
-      const g = matchGrade(n.stage)
-      ElMessage.info(`知识点不能拖出「${g?.label ?? UNSET_GRADE.label}」学段分区`)
-    }
-  }
+  // 节点可自由拖到任意位置（不限制学段分区/边界），落点即最终位置
+  const x = Math.round(e.node.position.x)
+  const y = Math.round(e.node.position.y)
   if (n.pos_x !== x || n.pos_y !== y) {
     const old = dragStartPos.value.get(e.node.id)
     const id = n.id
@@ -728,6 +708,15 @@ const activeGradeKey = computed(() => {
   const n = selectedNode.value
   return n ? (matchGrade(n.stage)?.key ?? UNSET_GRADE.key) : null
 })
+
+/** 新建/排布时把节点定位到学段分区内（左右限在分区内，允许少量溢出；仅程序化定位用，拖拽不约束） */
+function clampToGradeCol(node: KNode): { x: number; y: number } {
+  const col = gradeColumnRange(gradeColumnIndex(matchGrade(node.stage)?.key))
+  const x0 = col.x0 - ZONE_TOLERANCE + COL_PAD
+  const x1 = col.x1 + ZONE_TOLERANCE - COL_PAD
+  const x = Math.min(Math.max(node.pos_x ?? 0, x0), Math.max(x0, x1 - nodeWidth))
+  return { x: Math.round(x), y: Math.round(node.pos_y ?? 0) }
+}
 
 /** 在学段分区内为节点挑一个落点 */
 function placeInGradeCol(stage: string | null, prefer?: { x: number; y: number }): { x: number; y: number } {
