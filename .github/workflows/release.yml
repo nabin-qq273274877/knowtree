@@ -169,6 +169,14 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: |
-            dist/**
-            dist/checksums.txt
+          # dist/** 已包含 checksums.txt，不要单独再列，避免同一资产被重复上传
+          # 导致 update-a-release-asset 404。
+          files: dist/**
+
+      # 兜底：softprops 偶发因 GitHub 对 tag 索引的延迟，release 会停在 draft，
+      # 且 API 按 tag 查询会 404。这里强制把 release 发布(draft=false)，
+      # 保证每次都能产出正式发行版。
+      - name: Ensure release is published
+        run: |
+          gh release edit "${{ github.ref_name }}" --repo "$GITHUB_REPOSITORY" --draft=false
+          gh release view "${{ github.ref_name }}" --repo "$GITHUB_REPOSITORY" --json htmlUrl --jq .htmlUrl
