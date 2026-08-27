@@ -48,7 +48,9 @@ jobs:
             runs-on: macos-14 # Apple Silicon
             ext: ""
           - name: macos-amd64
-            runs-on: macos-13 # Intel
+            # macOS 13(Ventura) Intel runner 已于 2025-12 退役，job 会永远排队等不到
+            # runner。改用最后一个 x86_64 公共镜像 macos-15-intel(macOS 15 Sequoia)。
+            runs-on: macos-15-intel # Intel
             ext: ""
           - name: linux-amd64
             runs-on: ubuntu-22.04
