@@ -181,4 +181,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release edit "${{ github.ref_name }}" --repo "$GITHUB_REPOSITORY" --draft=false
-          gh release view "${{ github.ref_name }}" --repo "$GITHUB_REPOSITORY" --json htmlUrl --jq .htmlUrl
+          gh release view "${{ github.ref_name }}" --repo "$GITHUB_REPOSITORY" --json url --jq .url
