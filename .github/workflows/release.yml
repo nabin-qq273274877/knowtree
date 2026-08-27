@@ -85,6 +85,12 @@ jobs:
         shell: bash
         env:
           VERSION: ${{ github.ref_name }}
+          # Wails v2 的 macOS 运行时引用了 UTType（来自 macOS 11+ 的
+          # UniformTypeIdentifiers.framework），但直接 go build 时 clang 不会自动
+          # 链接该 framework，导致 Undefined symbols: _OBJC_CLASS_$_UTType。
+          # 这里显式注入链接参数 + 设定最低部署目标，修复 macOS 三平台构建失败。
+          CGO_LDFLAGS: ${{ runner.os == 'macOS' && '-framework UniformTypeIdentifiers' || '' }}
+          MACOSX_DEPLOYMENT_TARGET: ${{ runner.os == 'macOS' && '11.0' || '' }}
         run: |
           rm -rf web/dist && mkdir -p web/dist
           cp -r frontend/dist/* web/dist/
