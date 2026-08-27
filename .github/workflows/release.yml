@@ -135,6 +135,12 @@ jobs:
           if [ -f "build/appicon.icns" ]; then cp "build/appicon.icns" "dist/${NAME}.app/Contents/Resources/icon.icns"; fi
           # 去掉裸二进制，只发 .app
           rm "dist/$NAME"
+          # 把 .app 目录打成 zip 作为单个文件上传：否则 upload-artifact/download-artifact
+          # 会把 .app 内部的 Info.plist/MacOS/Resources 平铺打散，Release 里就只剩散文件
+          # 而非完整可用的 .app bundle。macOS 用户下载 zip 双击解压即得 .app。
+          ditto -c -k --keepParent "dist/${NAME}.app" "dist/${NAME}.app.zip"
+          rm -rf "dist/${NAME}.app"
+          ls -la dist/
 
       - uses: actions/upload-artifact@v4
         with:
