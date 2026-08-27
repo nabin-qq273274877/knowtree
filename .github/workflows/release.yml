@@ -177,6 +177,8 @@ jobs:
       # 且 API 按 tag 查询会 404。这里强制把 release 发布(draft=false)，
       # 保证每次都能产出正式发行版。
       - name: Ensure release is published
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           gh release edit "${{ github.ref_name }}" --repo "$GITHUB_REPOSITORY" --draft=false
           gh release view "${{ github.ref_name }}" --repo "$GITHUB_REPOSITORY" --json htmlUrl --jq .htmlUrl

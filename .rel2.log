@@ -1,0 +1,116 @@
+﻿2026-08-27T01:43:14.7251220Z Current runner version: '2.336.0'
+2026-08-27T01:43:14.7273664Z ##[group]Runner Image Provisioner
+2026-08-27T01:43:14.7274556Z Hosted Compute Agent
+2026-08-27T01:43:14.7275113Z Version: 20260729.566
+2026-08-27T01:43:14.7275722Z Commit: cf7153fe6e25b664e8693c24944bf2b00355d109
+2026-08-27T01:43:14.7276482Z Build Date: 2026-07-29T19:17:02Z
+2026-08-27T01:43:14.7277102Z Worker ID: {076e939f-85e1-49ab-930c-8d3c96327b19}
+2026-08-27T01:43:14.7277813Z Azure Region: westcentralus
+2026-08-27T01:43:14.7278396Z ##[endgroup]
+2026-08-27T01:43:14.7279658Z ##[group]Operating System
+2026-08-27T01:43:14.7280278Z Ubuntu
+2026-08-27T01:43:14.7280778Z 24.04.4
+2026-08-27T01:43:14.7281274Z LTS
+2026-08-27T01:43:14.7281857Z ##[endgroup]
+2026-08-27T01:43:14.7282378Z ##[group]Runner Image
+2026-08-27T01:43:14.7283338Z Image: ubuntu-24.04
+2026-08-27T01:43:14.7283889Z Version: 20260816.277.1
+2026-08-27T01:43:14.7285088Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260816.277/images/ubuntu/Ubuntu2404-Readme.md
+2026-08-27T01:43:14.7286516Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260816.277
+2026-08-27T01:43:14.7287443Z ##[endgroup]
+2026-08-27T01:43:14.7288754Z ##[group]GITHUB_TOKEN Permissions
+2026-08-27T01:43:14.7290942Z Contents: write
+2026-08-27T01:43:14.7291497Z Metadata: read
+2026-08-27T01:43:14.7292072Z ##[endgroup]
+2026-08-27T01:43:14.7294094Z Secret source: Actions
+2026-08-27T01:43:14.7295112Z Prepare workflow directory
+2026-08-27T01:43:14.7622939Z Prepare all required actions
+2026-08-27T01:43:14.7689014Z Getting action download info
+2026-08-27T01:43:15.0558777Z Download action repository 'actions/download-artifact@v4' (SHA:d3f86a106a0bac45b974a628896c90dbdf5c8093)
+2026-08-27T01:43:15.7579773Z Download action repository 'softprops/action-gh-release@v2' (SHA:3bb12739c298aeb8a4eeaf626c5b8d85266b0e65)
+2026-08-27T01:43:16.2930268Z Complete job name: Publish release
+2026-08-27T01:43:16.3665763Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-08-27T01:43:16.3676879Z ##[group]Run actions/download-artifact@v4
+2026-08-27T01:43:16.3678505Z with:
+2026-08-27T01:43:16.3679530Z   merge-multiple: true
+2026-08-27T01:43:16.3680626Z   path: dist
+2026-08-27T01:43:16.3681811Z   repository: nabin-qq273274877/knowtree
+2026-08-27T01:43:16.3683340Z   run-id: 33030850974
+2026-08-27T01:43:16.3684979Z ##[endgroup]
+2026-08-27T01:43:16.5349821Z (node:2188) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-08-27T01:43:16.5353111Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-08-27T01:43:16.7410728Z Found 4 artifact(s)
+2026-08-27T01:43:16.7415397Z No input name, artifact-ids or pattern filtered specified, downloading all artifacts
+2026-08-27T01:43:16.7418595Z Preparing to download the following artifacts:
+2026-08-27T01:43:16.7423147Z - knowtree-desktop-windows-amd64 (ID: 9630205902, Size: 12421542, Expected Digest: sha256:86b59a0f97cf74abd55027f9b532874aa0f32136f8873d0cc4f5db0a6305f7b6)
+2026-08-27T01:43:16.7446609Z - knowtree-desktop-macos-amd64 (ID: 9630197494, Size: 12238887, Expected Digest: sha256:80a392c284d96b2debab9533f7db68873036d1ea7bf996bf153ab5744c900600)
+2026-08-27T01:43:16.7466919Z - knowtree-desktop-linux-amd64 (ID: 9630187831, Size: 12259089, Expected Digest: sha256:b68c5276fc21665b6e9d3ea8a32296e3502fcbaf4dfc6dab1ccdc984fc617b81)
+2026-08-27T01:43:16.7473555Z - knowtree-desktop-macos-arm64 (ID: 9630180031, Size: 11529683, Expected Digest: sha256:7edb61c06037e19e72514d37a6102979508b7108927355599872ee264f1a3219)
+2026-08-27T01:43:16.9416835Z Redirecting to blob download url: https://productionresultssa9.blob.core.windows.net/actions-results/2b421b01-40d3-4527-a695-82768b56a15e/workflow-job-run-ad8144f7-d080-5f53-9365-4b373f1289c0/artifacts/b6feee607594965fc99465031b34fd08ef7c92c7c12debf4cd66e850f4fc50e0.zip
+2026-08-27T01:43:16.9422311Z Starting download of artifact to: /home/runner/work/knowtree/knowtree/dist
+2026-08-27T01:43:17.0601097Z Redirecting to blob download url: https://productionresultssa9.blob.core.windows.net/actions-results/2b421b01-40d3-4527-a695-82768b56a15e/workflow-job-run-39f15223-b869-59ab-a218-0ae10303e1e5/artifacts/43154238c4632ee6463164159b140f2326c44dda086f9972ef35956b1a0a70cc.zip
+2026-08-27T01:43:17.0606437Z Starting download of artifact to: /home/runner/work/knowtree/knowtree/dist
+2026-08-27T01:43:17.0856862Z Redirecting to blob download url: https://productionresultssa9.blob.core.windows.net/actions-results/2b421b01-40d3-4527-a695-82768b56a15e/workflow-job-run-bcd30de2-c320-596d-9ce8-11418cb68e33/artifacts/82c5632962d42698b8881f18e19aa59452083af9cc71726c6c7c1dfeeff759d8.zip
+2026-08-27T01:43:17.0861969Z Starting download of artifact to: /home/runner/work/knowtree/knowtree/dist
+2026-08-27T01:43:17.1067246Z Redirecting to blob download url: https://productionresultssa9.blob.core.windows.net/actions-results/2b421b01-40d3-4527-a695-82768b56a15e/workflow-job-run-809b6a46-7319-51d2-a530-606211490ca7/artifacts/28e87278dd151d9faedde0275995a2aab9590466d10e2b042feda3f728b5bc85.zip
+2026-08-27T01:43:17.1072882Z Starting download of artifact to: /home/runner/work/knowtree/knowtree/dist
+2026-08-27T01:43:17.2016059Z (node:2188) [DEP0005] DeprecationWarning: Buffer() is deprecated due to security and usability issues. Please use the Buffer.alloc(), Buffer.allocUnsafe(), or Buffer.from() methods instead.
+2026-08-27T01:43:18.1683572Z SHA256 digest of downloaded artifact is 86b59a0f97cf74abd55027f9b532874aa0f32136f8873d0cc4f5db0a6305f7b6
+2026-08-27T01:43:18.1684892Z Artifact download completed successfully.
+2026-08-27T01:43:18.2600525Z SHA256 digest of downloaded artifact is 7edb61c06037e19e72514d37a6102979508b7108927355599872ee264f1a3219
+2026-08-27T01:43:18.2601939Z Artifact download completed successfully.
+2026-08-27T01:43:18.3194876Z SHA256 digest of downloaded artifact is 80a392c284d96b2debab9533f7db68873036d1ea7bf996bf153ab5744c900600
+2026-08-27T01:43:18.3196596Z Artifact download completed successfully.
+2026-08-27T01:43:18.4530194Z SHA256 digest of downloaded artifact is b68c5276fc21665b6e9d3ea8a32296e3502fcbaf4dfc6dab1ccdc984fc617b81
+2026-08-27T01:43:18.4531401Z Artifact download completed successfully.
+2026-08-27T01:43:18.4532172Z Total of 4 artifact(s) downloaded
+2026-08-27T01:43:18.4539074Z Download artifact has finished successfully
+2026-08-27T01:43:18.4723161Z ##[group]Run find . -type f \( -name '*.exe' -o -name '*.app' -o -type f \) | sort
+2026-08-27T01:43:18.4723986Z [36;1mfind . -type f \( -name '*.exe' -o -name '*.app' -o -type f \) | sort[0m
+2026-08-27T01:43:18.4724635Z [36;1msha256sum knowtree* > checksums.txt || true[0m
+2026-08-27T01:43:18.4725227Z [36;1mfind . -type f ! -name 'checksums.txt' -exec sha256sum {} + > checksums.txt[0m
+2026-08-27T01:43:18.4725804Z [36;1mcat checksums.txt[0m
+2026-08-27T01:43:18.4757594Z shell: /usr/bin/bash -e {0}
+2026-08-27T01:43:18.4758116Z ##[endgroup]
+2026-08-27T01:43:18.4845103Z ./knowtree-desktop-v0.1.0-linux-amd64
+2026-08-27T01:43:18.4845920Z ./knowtree-desktop-v0.1.0-macos-amd64.app.zip
+2026-08-27T01:43:18.4846533Z ./knowtree-desktop-v0.1.0-macos-arm64.app.zip
+2026-08-27T01:43:18.4847155Z ./knowtree-desktop-v0.1.0-windows-amd64.exe
+2026-08-27T01:43:18.6320563Z a18b7d977379cf511af30e1de2c8577230ce6074a0aaa199dee576cffcc9c3e8  ./knowtree-desktop-v0.1.0-macos-amd64.app.zip
+2026-08-27T01:43:18.6322591Z 840cdaaf357f14e646b5f001f999b7a7f4ecc97d6d83cf2bfe287ec4526aa1ad  ./knowtree-desktop-v0.1.0-windows-amd64.exe
+2026-08-27T01:43:18.6324281Z a13ca1be356be06c2fdbad357ef0e576d3225fb43da7a3df677dfebc1b0c914c  ./knowtree-desktop-v0.1.0-linux-amd64
+2026-08-27T01:43:18.6325669Z 065f76b5f00f160d1633514b0ff66f91ad8df83a3f0d8b5585b3e44eb02bbd3d  ./knowtree-desktop-v0.1.0-macos-arm64.app.zip
+2026-08-27T01:43:18.6430598Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-08-27T01:43:18.6432388Z ##[group]Run softprops/action-gh-release@v2
+2026-08-27T01:43:18.6433129Z with:
+2026-08-27T01:43:18.6433568Z   generate_release_notes: true
+2026-08-27T01:43:18.6434035Z   files: dist/**
+2026-08-27T01:43:18.6434404Z   overwrite_files: true
+2026-08-27T01:43:18.6437070Z   token: ***
+2026-08-27T01:43:18.6437456Z ##[endgroup]
+2026-08-27T01:43:19.0756627Z 👩‍🏭 Creating new GitHub release for tag v0.1.0...
+2026-08-27T01:43:20.4593954Z Release 377517485 is not yet discoverable by tag v0.1.0, retrying... (2 retries remaining)
+2026-08-27T01:43:21.8880616Z ⬆️ Uploading knowtree-desktop-v0.1.0-windows-amd64.exe...
+2026-08-27T01:43:21.8881888Z ⬆️ Uploading knowtree-desktop-v0.1.0-macos-arm64.app.zip...
+2026-08-27T01:43:21.8882941Z ⬆️ Uploading knowtree-desktop-v0.1.0-macos-amd64.app.zip...
+2026-08-27T01:43:21.8883767Z ⬆️ Uploading knowtree-desktop-v0.1.0-linux-amd64...
+2026-08-27T01:43:21.8884415Z ⬆️ Uploading checksums.txt...
+2026-08-27T01:43:22.4882969Z ✅ Uploaded checksums.txt
+2026-08-27T01:43:22.9880286Z ✅ Uploaded knowtree-desktop-v0.1.0-macos-arm64.app.zip
+2026-08-27T01:43:23.2422093Z ✅ Uploaded knowtree-desktop-v0.1.0-macos-amd64.app.zip
+2026-08-27T01:43:23.7619005Z ✅ Uploaded knowtree-desktop-v0.1.0-linux-amd64
+2026-08-27T01:43:23.8502685Z ✅ Uploaded knowtree-desktop-v0.1.0-windows-amd64.exe
+2026-08-27T01:43:23.8503734Z Finalizing release...
+2026-08-27T01:43:24.2009878Z Getting assets list...
+2026-08-27T01:43:24.3841070Z 🎉 Release ready at https://github.com/nabin-qq273274877/knowtree/releases/tag/v0.1.0
+2026-08-27T01:43:24.4023809Z ##[group]Run gh release edit "v0.1.0" --repo "$GITHUB_REPOSITORY" --draft=false
+2026-08-27T01:43:24.4024564Z [36;1mgh release edit "v0.1.0" --repo "$GITHUB_REPOSITORY" --draft=false[0m
+2026-08-27T01:43:24.4025224Z [36;1mgh release view "v0.1.0" --repo "$GITHUB_REPOSITORY" --json htmlUrl --jq .htmlUrl[0m
+2026-08-27T01:43:24.4050304Z shell: /usr/bin/bash -e {0}
+2026-08-27T01:43:24.4050769Z ##[endgroup]
+2026-08-27T01:43:24.6393384Z gh: To use GitHub CLI in a GitHub Actions workflow, set the GH_TOKEN environment variable. Example:
+2026-08-27T01:43:24.6394092Z   env:
+2026-08-27T01:43:24.6394444Z     GH_TOKEN: ${{ github.token }}
+2026-08-27T01:43:24.6409411Z ##[error]Process completed with exit code 4.
+2026-08-27T01:43:24.6504639Z Cleaning up orphan processes
+2026-08-27T01:43:24.6725299Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/download-artifact@v4, softprops/action-gh-release@v2. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
